@@ -989,6 +989,7 @@ ${safePdfWorker}
         let pageFlip = null;
         let totalPages = 0;
         let pdfPages = [];
+        let activeRenderTasks = {};
         
         let isMobileMode = false;
         let currentPageIndex = 0;
@@ -1515,7 +1516,10 @@ ${safePdfWorker}
                         canvasContext: tempCtx,
                         viewport: page.getViewport({ scale: renderScale * dpr }) // Directly DPR-scaled viewport
                     };
-                    await page.render(tempRenderContext).promise;
+                    const renderTaskTemp = page.render(tempRenderContext);
+                    activeRenderTasks[pageNum] = renderTaskTemp;
+                    await renderTaskTemp.promise;
+                    delete activeRenderTasks[pageNum];
 
                     // 2. Prepare final on-screen cropped canvas
                     canvas.width = Math.floor(croppedWidth * renderScale * dpr);
@@ -1554,7 +1558,10 @@ ${safePdfWorker}
                         canvasContext: ctx,
                         viewport: page.getViewport({ scale: renderScale * dpr }) // Scaled by DPR directly for desktop too
                     };
-                    await page.render(renderContext).promise;
+                    const renderTaskDesktop = page.render(renderContext);
+                    activeRenderTasks[pageNum] = renderTaskDesktop;
+                    await renderTaskDesktop.promise;
+                    delete activeRenderTasks[pageNum];
                 }
                 
                 // Cache the fully rendered canvas as high-efficiency Image object
@@ -1579,6 +1586,9 @@ ${safePdfWorker}
                 pdfPages[pageNum] = 'done';
             } catch(err) {
                 console.error("Page Render Failure:", pageNum, err);
+                if (activeRenderTasks[pageNum]) {
+                    delete activeRenderTasks[pageNum];
+                }
                 pdfPages[pageNum] = null;
             }
         }
@@ -1597,6 +1607,16 @@ ${safePdfWorker}
                         const el = document.getElementById('page-' + i);
                         if (el) {
                             // Erase heavy canvas element entirely to reclaim memory/GPU buffer immediately
+                            el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
+                        }
+                    } else if (pdfPages[i] === 'rendering') {
+                        if (activeRenderTasks[i]) {
+                            try { activeRenderTasks[i].cancel(); } catch(e) {}
+                            delete activeRenderTasks[i];
+                        }
+                        pdfPages[i] = null;
+                        const el = document.getElementById('page-' + i);
+                        if (el) {
                             el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
                         }
                     }
