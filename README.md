@@ -1,11 +1,16 @@
-<div align="center">
+# 📚 PDF to Flipbook Ebook Exporter
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+A lightweight, high-performance, and offline-first web application that converts PDF documents into standalone, interactive HTML flipbook ebooks.
 
-  <h1>Built with AI Studio</h2>
+## ✨ Key Features
+- ⚡ **Lightweight HTML Exports:** Generates lightweight self-contained `.html` ebook files (~2.5MB to 3MB total size).
+- ✈️ **100% Offline Ready:** Embedded PDF rendering engines work entirely without internet access, external CDNs, or server calls (Airplane Mode compatible).
+- 📱 **Mobile-Optimized View:** Hard-locked single-page display for mobile screens that fills 100% of the viewport for comfortable reading.
+- 🛡️ **Privacy First:** 100% client-side processing. Your PDF files stay on your device and are never uploaded to any external server.
+- 📖 **Interactive Navigation:** Smooth touch swipe gestures, thumbnail navigation, page jump bar, and full-screen viewing mode.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## 🚀 How to Use
+1. Open the converter dashboard in your browser.
+2. Drag and drop or select your PDF file.
+3. Click **Generate Offline Flipbook Ebook (.html)**.
+4. Download and open the generated `.html` file anywhere, on any device!

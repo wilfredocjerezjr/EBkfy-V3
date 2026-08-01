@@ -1,0 +1,1872 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Offline HTML Flipbook Exporter Pro</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PDF.js for Client Analysis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            background-color: #FAF6F0; /* Soft Pastel Warm Cream */
+            color: #1E293B;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid #EAE3D9;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04), 0 4px 12px -2px rgba(0, 0, 0, 0.02);
+        }
+        .drop-zone {
+            border: 2px dashed #CBD5E1;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #6366F1;
+            background: #F4F3FF;
+        }
+        .step-spinner {
+            width: 18px; height: 18px;
+            border: 2px solid #E2E8F0;
+            border-top-color: #6366F1;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-full flex flex-col items-center justify-center p-4 sm:p-6 md:p-10">
+
+<div class="w-full max-w-2xl glass-card rounded-2xl p-6 sm:p-8 transition-all duration-300">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6 pb-4 border-b border-stone-200/60">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
+                <i data-lucide="book-open-check" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">PDF to Flipbook Exporter</h1>
+                <p class="text-xs text-slate-500 font-medium">Standalone • 100% Offline • Single-Page Mobile View</p>
+            </div>
+        </div>
+        <span class="px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/60 rounded-full">v2.5 Pro</span>
+    </div>
+
+    <!-- MAIN FORM STEP -->
+    <div id="form-container" class="space-y-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">Book Title</label>
+                <input type="text" id="meta-title" class="w-full px-3.5 py-2.5 bg-stone-50/50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white outline-none transition" placeholder="e.g. Annual Report 2026">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">Author / Publisher</label>
+                <input type="text" id="meta-author" class="w-full px-3.5 py-2.5 bg-stone-50/50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white outline-none transition" placeholder="e.g. Design Studio">
+            </div>
+        </div>
+
+        <!-- File Upload Dropzone -->
+        <div id="drop-zone" class="drop-zone rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer bg-stone-50/60 hover:bg-stone-50 text-center group">
+            <div class="w-12 h-12 rounded-full bg-white border border-slate-200/80 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 group-hover:scale-110 shadow-sm transition-all mb-3">
+                <i data-lucide="upload-cloud" class="w-6 h-6"></i>
+            </div>
+            <p class="text-sm text-slate-700 font-semibold">Click to select or drag PDF file here</p>
+            <p class="text-xs text-slate-400 mt-1 font-medium">Embeds raw PDF stream • Output size ~2.5MB • Works offline</p>
+            <input type="file" id="file-input" accept="application/pdf" class="hidden">
+        </div>
+
+        <!-- Selected File Info Card -->
+        <div id="file-info" class="hidden flex items-center justify-between p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <i data-lucide="file-text" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <p id="file-name" class="text-sm font-bold text-slate-900 truncate max-w-[220px] sm:max-w-xs">filename.pdf</p>
+                    <div class="flex items-center gap-2 text-xs text-indigo-700 font-medium mt-0.5">
+                        <span id="file-size">0 MB</span>
+                        <span>•</span>
+                        <span id="file-pages" class="font-semibold bg-indigo-100 px-1.5 py-0.5 rounded text-[11px]">Analyzing...</span>
+                    </div>
+                </div>
+            </div>
+            <button id="btn-remove" class="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-lg transition" title="Remove PDF">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- Export Action Button -->
+        <button id="btn-export" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl shadow-md hover:shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2" disabled>
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span id="btn-text">Generate Offline Flipbook Ebook (.html)</span>
+        </button>
+    </div>
+
+    <!-- MULTI-STEP PROCESSING ENGINE CARD -->
+    <div id="processing-container" class="hidden space-y-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-base font-bold text-slate-900">Converting Your PDF</h2>
+                <p class="text-xs text-slate-500">Packaging offline render engine & responsive layouts...</p>
+            </div>
+            <div id="est-time" class="text-xs font-semibold px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200/60 rounded-full flex items-center gap-1">
+                <i data-lucide="clock" class="w-3 h-3"></i>
+                <span>~2s remaining</span>
+            </div>
+        </div>
+
+        <!-- Dynamic Real-Time Progress Bar -->
+        <div class="space-y-1.5">
+            <div class="flex justify-between text-xs font-semibold text-slate-700">
+                <span id="progress-text">Initializing Pipeline...</span>
+                <span id="progress-pct" class="text-indigo-600">0%</span>
+            </div>
+            <div class="w-full bg-stone-200/80 rounded-full h-2.5 overflow-hidden">
+                <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Live Step Status List -->
+        <div class="space-y-3 bg-stone-50/80 border border-slate-200/60 rounded-xl p-4">
+            <!-- Step 1 -->
+            <div id="step-1" class="flex items-center justify-between text-xs font-medium text-slate-400">
+                <div class="flex items-center gap-2.5">
+                    <div class="step-icon w-5 h-5 rounded-full border border-slate-300 flex items-center justify-center shrink-0">1</div>
+                    <span>Analyzing PDF Structure & Metadata...</span>
+                </div>
+                <span class="step-status text-[11px] font-semibold text-slate-400">Pending</span>
+            </div>
+            <!-- Step 2 -->
+            <div id="step-2" class="flex items-center justify-between text-xs font-medium text-slate-400">
+                <div class="flex items-center gap-2.5">
+                    <div class="step-icon w-5 h-5 rounded-full border border-slate-300 flex items-center justify-center shrink-0">2</div>
+                    <span>Configuring Single-Page Mobile Engine...</span>
+                </div>
+                <span class="step-status text-[11px] font-semibold text-slate-400">Pending</span>
+            </div>
+            <!-- Step 3 -->
+            <div id="step-3" class="flex items-center justify-between text-xs font-medium text-slate-400">
+                <div class="flex items-center gap-2.5">
+                    <div class="step-icon w-5 h-5 rounded-full border border-slate-300 flex items-center justify-center shrink-0">3</div>
+                    <span>Bundling Offline Rendering Scripts...</span>
+                </div>
+                <span class="step-status text-[11px] font-semibold text-slate-400">Pending</span>
+            </div>
+            <!-- Step 4 -->
+            <div id="step-4" class="flex items-center justify-between text-xs font-medium text-slate-400">
+                <div class="flex items-center gap-2.5">
+                    <div class="step-icon w-5 h-5 rounded-full border border-slate-300 flex items-center justify-center shrink-0">4</div>
+                    <span>Packaging Standalone Ebook (.html)...</span>
+                </div>
+                <span class="step-status text-[11px] font-semibold text-slate-400">Pending</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SUCCESS / DOWNLOAD MODAL CARD -->
+    <div id="success-container" class="hidden space-y-5">
+        <div class="p-4 bg-emerald-50 border border-emerald-200/80 rounded-xl flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <i data-lucide="check" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h3 class="text-sm font-bold text-emerald-950">Flipbook HTML Ebook Ready!</h3>
+                <p class="text-xs text-emerald-700">100% Standalone • Offline Capable • Single-Page Mobile View</p>
+            </div>
+        </div>
+
+        <!-- Output Summary Grid -->
+        <div class="grid grid-cols-3 gap-3">
+            <div class="bg-stone-50 border border-stone-200/80 p-3 rounded-xl text-center">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Est. Size</p>
+                <p id="stat-size" class="text-sm font-bold text-slate-800 mt-0.5">~2.5 MB</p>
+            </div>
+            <div class="bg-stone-50 border border-stone-200/80 p-3 rounded-xl text-center">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Total Pages</p>
+                <p id="stat-pages" class="text-sm font-bold text-slate-800 mt-0.5">- Pages</p>
+            </div>
+            <div class="bg-stone-50 border border-stone-200/80 p-3 rounded-xl text-center">
+                <p class="text-[10px] uppercase font-bold text-slate-400">Mobile Layout</p>
+                <p class="text-xs font-bold text-indigo-600 mt-1">Single-Page</p>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="space-y-2.5">
+            <button id="btn-download" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl shadow-md hover:shadow-emerald-600/20 transition flex items-center justify-center gap-2">
+                <i data-lucide="download" class="w-5 h-5"></i>
+                <span>Download Standalone Flipbook Ebook (.html)</span>
+            </button>
+
+            <div class="grid grid-cols-2 gap-2.5">
+                <button id="btn-preview-toggle" class="py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold border border-indigo-200/70 rounded-xl transition flex items-center justify-center gap-1.5 text-xs">
+                    <i data-lucide="eye" class="w-4 h-4"></i>
+                    <span>Live Preview</span>
+                </button>
+                <button id="btn-reset" class="py-2.5 bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold border border-slate-200 rounded-xl transition flex items-center justify-center gap-1.5 text-xs">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    <span>Convert Another</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- LIVE PREVIEW MODAL -->
+<div id="preview-modal" class="hidden fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex flex-col">
+    <div class="h-14 bg-stone-900 border-b border-stone-800 text-white px-4 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2">
+            <i data-lucide="eye" class="w-4 h-4 text-indigo-400"></i>
+            <span class="text-sm font-bold">Interactive Live Preview</span>
+            <span class="text-xs text-stone-400 hidden sm:inline">(Exact HTML Output)</span>
+        </div>
+        <button id="btn-close-preview" class="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+    </div>
+    <div class="flex-1 w-full bg-black relative">
+        <iframe id="preview-iframe" class="w-full h-full border-0"></iframe>
+    </div>
+</div>
+
+<script>
+if (window.lucide) {
+    lucide.createIcons();
+}
+
+let currentFile = null;
+let currentBase64 = null;
+let currentPagesCount = 0;
+let generatedExportHtml = null;
+
+// Safe DOM element retrieval helper
+function getEl(id) {
+    return document.getElementById(id);
+}
+
+// Attach event listeners safely
+const dropZone = getEl('drop-zone');
+const fileInput = getEl('file-input');
+
+if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+}
+
+if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length) handleFile(e.target.files[0]);
+    });
+}
+
+const btnRemove = getEl('btn-remove');
+if (btnRemove) {
+    btnRemove.addEventListener('click', () => resetFormState());
+}
+
+const btnReset = getEl('btn-reset');
+if (btnReset) {
+    btnReset.addEventListener('click', () => resetFormState());
+}
+
+function resetFormState() {
+    currentFile = null;
+    currentBase64 = null;
+    currentPagesCount = 0;
+    generatedExportHtml = null;
+    
+    const fileInfo = getEl('file-info');
+    const dropZone = getEl('drop-zone');
+    const btnExport = getEl('btn-export');
+    const fileInput = getEl('file-input');
+    const titleInput = getEl('meta-title');
+    const authorInput = getEl('meta-author');
+    const formContainer = getEl('form-container');
+    const processingContainer = getEl('processing-container');
+    const successContainer = getEl('success-container');
+
+    if (fileInfo) fileInfo.classList.add('hidden');
+    if (dropZone) dropZone.classList.remove('hidden');
+    if (btnExport) btnExport.disabled = true;
+    if (fileInput) fileInput.value = '';
+    if (titleInput) titleInput.value = '';
+    if (authorInput) authorInput.value = '';
+    
+    if (formContainer) formContainer.classList.remove('hidden');
+    if (processingContainer) processingContainer.classList.add('hidden');
+    if (successContainer) successContainer.classList.add('hidden');
+}
+
+async function handleFile(file) {
+    if (!file || file.type !== 'application/pdf') {
+        alert('Please select a valid PDF file.');
+        return;
+    }
+    currentFile = file;
+
+    const fileNameEl = getEl('file-name');
+    const fileSizeEl = getEl('file-size');
+    const filePagesEl = getEl('file-pages');
+    const titleInputEl = getEl('meta-title');
+    const dropZoneEl = getEl('drop-zone');
+    const fileInfoEl = getEl('file-info');
+    const btnExportEl = getEl('btn-export');
+
+    if (fileNameEl) fileNameEl.textContent = file.name;
+    const mbSize = (file.size / (1024 * 1024)).toFixed(2);
+    if (fileSizeEl) fileSizeEl.textContent = mbSize + ' MB';
+    if (filePagesEl) filePagesEl.textContent = 'Analyzing...';
+    
+    if (titleInputEl && !titleInputEl.value) {
+        titleInputEl.value = file.name.replace(/\.pdf$/i, '');
+    }
+
+    if (dropZoneEl) dropZoneEl.classList.add('hidden');
+    if (fileInfoEl) fileInfoEl.classList.remove('hidden');
+    if (btnExportEl) btnExportEl.disabled = true;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const result = e.target.result;
+        currentBase64 = result.substring(result.indexOf(',') + 1);
+
+        try {
+            const raw = atob(currentBase64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            
+            if (window.pdfjsLib) {
+                const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+                currentPagesCount = pdf.numPages;
+                if (filePagesEl) filePagesEl.textContent = currentPagesCount + ' Pages';
+            } else {
+                if (filePagesEl) filePagesEl.textContent = 'PDF Loaded';
+            }
+            if (btnExportEl) btnExportEl.disabled = false;
+        } catch(err) {
+            console.warn("Could not parse page count directly", err);
+            if (filePagesEl) filePagesEl.textContent = 'PDF Loaded';
+            if (btnExportEl) btnExportEl.disabled = false;
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+// Safe step indicator updater with null checks
+function updateStepStatus(stepNum, state, message) {
+    const stepEl = getEl(`step-${stepNum}`);
+    if (!stepEl) return;
+    
+    const iconEl = stepEl.querySelector('.step-icon');
+    const statusEl = stepEl.querySelector('.step-status');
+    
+    if (state === 'active') {
+        stepEl.className = 'flex items-center justify-between text-xs font-semibold text-indigo-700';
+        if (iconEl) {
+            iconEl.className = 'step-spinner shrink-0';
+            iconEl.innerHTML = '';
+        }
+        if (statusEl) {
+            statusEl.className = 'step-status text-[11px] font-bold text-indigo-600 animate-pulse';
+            statusEl.textContent = message || 'Processing...';
+        }
+    } else if (state === 'done') {
+        stepEl.className = 'flex items-center justify-between text-xs font-medium text-emerald-700';
+        if (iconEl) {
+            iconEl.className = 'w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 font-bold text-[10px]';
+            iconEl.innerHTML = '✓';
+        }
+        if (statusEl) {
+            statusEl.className = 'step-status text-[11px] font-bold text-emerald-600';
+            statusEl.textContent = message || 'Complete';
+        }
+    }
+}
+
+// Safe progress updater with null checks
+function setProgress(pct, text) {
+    const bar = getEl('progress-bar');
+    const pctEl = getEl('progress-pct');
+    const txtEl = getEl('progress-text');
+
+    if (bar) bar.style.width = `${pct}%`;
+    if (pctEl) pctEl.textContent = `${pct}%`;
+    if (txtEl) txtEl.textContent = text;
+}
+
+const btnExport = getEl('btn-export');
+if (btnExport) {
+    btnExport.addEventListener('click', async () => {
+        const formContainer = getEl('form-container');
+        const processingContainer = getEl('processing-container');
+        const successContainer = getEl('success-container');
+        const titleInput = getEl('meta-title');
+        const authorInput = getEl('meta-author');
+
+        if (formContainer) formContainer.classList.add('hidden');
+        if (processingContainer) processingContainer.classList.remove('hidden');
+        
+        try {
+            // Step 1: Analyze PDF
+            updateStepStatus(1, 'active');
+            setProgress(15, 'Analyzing PDF Structure & Metadata...');
+            await new Promise(r => setTimeout(r, 400));
+            updateStepStatus(1, 'done');
+            
+            // Step 2: Configure Mobile Engine
+            updateStepStatus(2, 'active');
+            setProgress(35, 'Configuring Single-Page Mobile Engine...');
+            await new Promise(r => setTimeout(r, 400));
+            updateStepStatus(2, 'done');
+            
+            // Step 3: Bundle Scripts
+            updateStepStatus(3, 'active');
+            setProgress(55, 'Fetching & Bundling Offline Rendering Scripts...');
+            
+            const [pdfJsRes, pdfWorkerRes, pageFlipRes] = await Promise.all([
+                fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'),
+                fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'),
+                fetch('https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js')
+            ]);
+
+            const pdfJsCode = await pdfJsRes.text();
+            const pdfWorkerCode = await pdfWorkerRes.text();
+            const pageFlipCode = await pageFlipRes.text();
+            
+            updateStepStatus(3, 'done');
+            
+            // Step 4: Package HTML
+            updateStepStatus(4, 'active');
+            setProgress(85, 'Packaging Standalone Ebook (.html)...');
+            await new Promise(r => setTimeout(r, 300));
+            
+            generatedExportHtml = generateOfflineHtml(
+                (titleInput && titleInput.value) || 'Flipbook Ebook',
+                (authorInput && authorInput.value) || 'Anonymous',
+                currentBase64,
+                pdfJsCode,
+                pdfWorkerCode,
+                pageFlipCode
+            );
+
+            updateStepStatus(4, 'done');
+            setProgress(100, 'Export Packaging Complete!');
+            await new Promise(r => setTimeout(r, 400));
+            
+            // Display Success View
+            if (processingContainer) processingContainer.classList.add('hidden');
+            if (successContainer) successContainer.classList.remove('hidden');
+            
+            const estMb = ((currentFile ? currentFile.size : 2500000) / (1024 * 1024) + 0.5).toFixed(1);
+            const statSizeEl = getEl('stat-size');
+            if (statSizeEl) statSizeEl.textContent = `~${estMb} MB`;
+            const statPagesEl = getEl('stat-pages');
+            if (statPagesEl) statPagesEl.textContent = `${currentPagesCount || '-'} Pages`;
+
+        } catch (err) {
+            console.error("Export Engine Exception:", err);
+            if (processingContainer) processingContainer.classList.add('hidden');
+            if (formContainer) formContainer.classList.remove('hidden');
+        }
+    });
+}
+
+const btnDownload = getEl('btn-download');
+if (btnDownload) {
+    btnDownload.addEventListener('click', () => {
+        if (!generatedExportHtml) return;
+        const titleInput = getEl('meta-title');
+        const blob = new Blob([generatedExportHtml], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${((titleInput && titleInput.value) || 'flipbook').replace(/[^a-zA-Z0-9_\-]/g, '_')}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+}
+
+const btnPreviewToggle = getEl('btn-preview-toggle');
+const previewModal = getEl('preview-modal');
+const previewIframe = getEl('preview-iframe');
+
+if (btnPreviewToggle) {
+    btnPreviewToggle.addEventListener('click', () => {
+        if (!generatedExportHtml) return;
+        const blob = new Blob([generatedExportHtml], { type: 'text/html' });
+        if (previewIframe) previewIframe.src = URL.createObjectURL(blob);
+        if (previewModal) previewModal.classList.remove('hidden');
+    });
+}
+
+const btnClosePreview = getEl('btn-close-preview');
+if (btnClosePreview) {
+    btnClosePreview.addEventListener('click', () => {
+        if (previewModal) previewModal.classList.add('hidden');
+        if (previewIframe) previewIframe.src = 'about:blank';
+    });
+}
+
+function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode, pageFlipCode) {
+    const safeTitle = (title || 'Flipbook Ebook').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeAuthor = (author || 'Anonymous').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeTitleKey = safeTitle.replace(/[^a-zA-Z0-9]/g, '_');
+
+    const scriptOpen = "<scr" + "ipt>";
+    const scriptClose = "</scr" + "ipt>";
+
+    const safePdfJs = (pdfJsCode || '').replace(/<\/script>/gi, '<\\/script>');
+    const safePdfWorker = (pdfWorkerCode || '').replace(/<\/script>/gi, '<\\/script>');
+    const safePageFlip = (pageFlipCode || '').replace(/<\/script>/gi, '<\\/script>');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <title>${safeTitle} - Offline Flipbook</title>
+    <style>
+        :root {
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+            --sal: env(safe-area-inset-left, 0px);
+            --sar: env(safe-area-inset-right, 0px);
+            --bg-color: #FAF6F0;
+            --text-color: #1E293B;
+            --header-bg: #FDFBF7;
+            --header-border: #EAE3D9;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body {
+            width: 100%; height: 100%; margin: 0; padding: 0;
+            overflow: hidden; position: fixed;
+            background-color: #f3f4f6;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: var(--text-color);
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        #ebook-app-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            background-color: #f3f4f6;
+        }
+        
+        /* Sleek Fixed Top Toolbar (height: 50px) */
+        header {
+            position: fixed; top: 0; left: 0; right: 0;
+            height: calc(50px + var(--sat));
+            padding-top: var(--sat);
+            padding-left: calc(12px + var(--sal));
+            padding-right: calc(12px + var(--sar));
+            z-index: 50; display: flex; align-items: center; justify-content: space-between;
+            background-color: var(--header-bg);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--header-border);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+            gap: 12px;
+        }
+        .header-left { display: flex; align-items: center; flex-shrink: 0; }
+        .header-title { display: flex; flex-direction: column; max-width: 150px; }
+        .header-title h1 { margin: 0; font-size: 13px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header-title p { margin: 0; font-size: 10px; font-weight: 500; color: #64748B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        .header-center { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; }
+        .header-right { display: flex; align-items: center; flex-shrink: 0; }
+
+        .toolbar-group { display: flex; align-items: center; gap: 6px; }
+        .btn { 
+            background: transparent; border: none; padding: 6px 8px; border-radius: 8px; 
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            color: #475569; transition: all 0.2s;
+        }
+        .btn:hover { background: rgba(0,0,0,0.05); color: #0F172A; }
+        .btn:active { transform: scale(0.95); }
+        .btn svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+        
+        /* Advanced Search Bar & Autocomplete */
+        .search-container {
+            position: relative;
+            width: 260px;
+            max-width: 100%;
+        }
+        #search-input {
+            width: 100%;
+            padding: 6px 52px 6px 12px;
+            font-size: 12px;
+            border: 1px solid var(--header-border);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.03);
+            outline: none;
+            color: var(--text-color);
+            transition: all 0.2s;
+        }
+        #search-input:focus {
+            border-color: #6366F1;
+            background: #FFFFFF;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+        }
+        .search-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #64748B;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .search-btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            fill: none;
+        }
+        .search-suggestions-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: #FFFFFF;
+            border: 1px solid #EAE3D9;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .suggestion-item {
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #334155;
+            cursor: pointer;
+            border-bottom: 1px solid #FAF6F0;
+            transition: all 0.15s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+        .suggestion-item:hover {
+            background: #F4F3FF;
+            color: #6366F1;
+        }
+        .suggestion-item .page-num {
+            font-size: 10px;
+            font-weight: 700;
+            color: #64748B;
+            background: #F1F5F9;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .page-input-group {
+            display: flex; align-items: center; background: rgba(0,0,0,0.04);
+            border-radius: 8px; padding: 3px 6px; border: 1px solid rgba(0,0,0,0.06);
+        }
+        .page-input-group input {
+            width: 30px; text-align: center; background: transparent; border: none;
+            font-size: 12px; font-weight: 700; color: var(--text-color); outline: none;
+        }
+        .page-input-group span { font-size: 11px; font-weight: 600; color: #64748B; margin-left: 2px; }
+
+        /* Full-Screen Viewport */
+        #flipbook-viewport {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 50px - var(--sat) - var(--sab));
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+            padding: 0;
+            overflow: hidden;
+            margin-top: calc(50px + var(--sat));
+        }
+
+        #zoom-stage {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            transition: transform 0.1s ease-out; transform-origin: center center;
+            will-change: transform;
+        }
+        #flipbook-container {
+            margin: 0 auto !important;
+            padding: 0 !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+        }
+        
+        /* Force StPageFlip parent containers to remain strictly centered */
+        .stpageflip-container, .stpageflip-element, .stf__parent, .stf__wrapper {
+            margin: 0 auto !important;
+            top: 0 !important;
+            left: 0 !important;
+        }
+
+        /* Pages */
+        .page-wrapper {
+            background: #FFFFFF; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .stpageflip-page, .page-wrapper canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain !important;
+            pointer-events: none;
+            background-color: #FFFFFF;
+        }
+        .page-loading {
+            position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #94A3B8; font-size: 12px; font-weight: 600; background: #FFFFFF; gap: 8px;
+        }
+        .page-loading-spinner {
+            width: 24px; height: 24px; border: 2px solid #E2E8F0; border-top-color: #6366F1; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .stf__block { background-color: transparent !important; }
+
+        /* Slide-Out Pages/Thumbnails Drawer (Left Side) */
+        #thumbs-drawer {
+            position: fixed; top: calc(50px + var(--sat)); bottom: 0; left: 0; width: 260px;
+            background: #FDFBF7; border-right: 1px solid #EAE3D9; z-index: 60;
+            transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; box-shadow: 10px 0 30px rgba(0,0,0,0.08);
+        }
+        #thumbs-drawer.open { transform: translateX(0); }
+        .drawer-header {
+            padding: 12px 16px; border-bottom: 1px solid #EAE3D9;
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 13px; font-weight: 700; color: #0F172A;
+        }
+        .drawer-grid {
+            flex: 1; overflow-y: auto; padding: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+        }
+        .thumb-item {
+            aspect-ratio: 1/1.4; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s; font-size: 11px; font-weight: 600; color: #64748B;
+        }
+        .thumb-item:hover, .thumb-item.active {
+            border-color: #6366F1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); color: #6366F1;
+        }
+
+        /* Slide-Out Chapters Drawer (Right Side) */
+        #chapters-drawer {
+            position: fixed; top: calc(50px + var(--sat)); bottom: 0; right: 0; width: 300px;
+            background: #FDFBF7; border-left: 1px solid #EAE3D9; z-index: 60;
+            transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.08);
+        }
+        #chapters-drawer.open { transform: translateX(0); }
+        .chapters-list {
+            flex: 1; overflow-y: auto; padding: 12px;
+        }
+        .chapter-item {
+            padding: 10px 12px; font-size: 12px; font-weight: 600; color: #334155;
+            cursor: pointer; border-radius: 6px; transition: all 0.2s;
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 4px;
+        }
+        .chapter-item:hover { background: #F4F3FF; color: #6366F1; }
+        .chapter-item.active { background: #EEEBFF; color: #6366F1; }
+        .chapter-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
+        .chapter-item-page { font-size: 10px; font-weight: 700; color: #64748B; }
+
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed; inset: 0; background: #f3f4f6; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .spinner {
+            width: 44px; height: 44px; border: 3px solid rgba(99, 102, 241, 0.15);
+            border-top-color: #6366F1; border-radius: 50%;
+            animation: spin 0.8s linear infinite; margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Responsive UI and Mobile Lock View */
+        @media (max-width: 767px) {
+            .header-left { display: none; }
+            .search-container { width: 140px; }
+            #flipbook-viewport {
+                width: 100vw !important;
+                height: calc(100vh - 50px - var(--sat) - var(--sab)) !important;
+                margin-top: calc(50px + var(--sat)) !important;
+                perspective: 1500px;
+                transform-style: preserve-3d;
+            }
+            #flipbook-container {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 100% !important;
+                height: 100% !important;
+                position: relative !important;
+            }
+            .page-wrapper {
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                display: none !important;
+                align-items: center !important;
+                justify-content: center !important;
+                background-color: transparent !important;
+                box-shadow: none !important;
+                backface-visibility: hidden;
+                transform-style: preserve-3d;
+                transform-origin: left center;
+                transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.6s ease;
+            }
+            .page-wrapper.active-mobile-page {
+                display: flex !important;
+                transform: rotateY(0deg) scale(1);
+                opacity: 1;
+                z-index: 5;
+            }
+            .page-wrapper.flip-left {
+                display: flex !important;
+                transform: rotateY(-180deg) scale(0.9);
+                opacity: 0;
+                z-index: 10;
+                pointer-events: none;
+            }
+            .page-wrapper canvas {
+                max-width: 100% !important;
+                max-height: 100% !important;
+                width: auto !important;
+                height: auto !important;
+                object-fit: contain !important;
+                display: block !important;
+                margin: auto !important;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ebook-app-container">
+        <div id="loading-screen">
+            <div class="spinner"></div>
+            <div style="font-size: 14px; font-weight: 700; color: #334155;" id="loading-text">Preparing Flipbook Engine...</div>
+        </div>
+
+        <header>
+            <div class="header-left">
+                <div class="header-title">
+                    <h1>${safeTitle}</h1>
+                    <p>${safeAuthor}</p>
+                </div>
+            </div>
+            
+            <div class="header-center">
+                <div class="search-container">
+                    <input type="text" id="search-input" placeholder="Search chapters, pages...">
+                    <button id="search-clear-btn" class="hidden" type="button" style="position: absolute; right: 28px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #64748B; display: flex; align-items: center; justify-content: center; padding: 0;">
+                        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.5; fill: none;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                    <button class="search-btn" id="search-btn">
+                        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    </button>
+                    <div id="search-suggestions" class="search-suggestions-dropdown hidden"></div>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <div class="toolbar-group">
+                    <button class="btn" id="btn-prev" title="Previous Page">
+                        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    </button>
+                    <div class="page-input-group">
+                        <input type="number" id="page-input" value="1" min="1">
+                        <span id="page-total">/ -</span>
+                    </div>
+                    <button class="btn" id="btn-next" title="Next Page">
+                        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    </button>
+                    <button class="btn" id="btn-thumbs" title="Page Thumbnails">
+                        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    </button>
+                    <button class="btn" id="btn-fullscreen" title="Fullscreen">
+                        <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                    </button>
+                    <button class="btn" id="btn-chapters" title="Chapters Drawer">
+                        <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- THUMBNAILS DRAWER -->
+        <div id="thumbs-drawer">
+            <div class="drawer-header">
+                <span>Pages Drawer</span>
+                <button class="btn" id="btn-close-thumbs" style="padding: 2px;">
+                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="drawer-grid" id="drawer-grid"></div>
+        </div>
+
+        <!-- CHAPTERS DRAWER -->
+        <div id="chapters-drawer">
+            <div class="drawer-header">
+                <span>Chapters & Topics</span>
+                <button class="btn" id="btn-close-chapters" style="padding: 2px;">
+                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="chapters-list" id="chapters-list"></div>
+        </div>
+
+        <!-- VIEWPORT & STAGE -->
+        <div id="flipbook-viewport">
+            <div id="zoom-stage">
+                <div id="flipbook-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 100% OFFLINE BUNDLED SCRIPTS -->
+    ${scriptOpen}
+        ${safePdfJs}
+    ${scriptClose}
+    ${scriptOpen}
+        ${safePageFlip}
+    ${scriptClose}
+    <script type="text/plain" id="pdf-worker-code">
+${safePdfWorker}
+    ${scriptClose}
+
+    <!-- MAIN READER LOGIC -->
+    ${scriptOpen}
+        const PDF_B64 = "${pdfBase64}";
+        const STORAGE_KEY = "flipbook_pos_${safeTitleKey}";
+        
+        let pdfDoc = null;
+        let pageFlip = null;
+        let totalPages = 0;
+        let pdfPages = [];
+        
+        let isMobileMode = false;
+        let currentPageIndex = 0;
+
+        let fitScale = 1.0;
+        let flipbookWidth = 300;
+        let flipbookHeight = 400;
+
+        let zoomLevel = 1.0;
+        let panX = 0; let panY = 0;
+        let isPanning = false; let touchStartDist = 0; let touchStartZoom = 1;
+        let touchStartPan = {x:0, y:0}; let touchStartPos = {x:0, y:0};
+        let lastTapTime = 0;
+
+        // In-memory JPEG page cache with Least-Recently-Used eviction policy
+        const pageCache = {};
+        const cacheOrder = [];
+        const MAX_CACHE_SIZE = 12;
+
+        function cachePageData(pageNum, canvasData) {
+            const idx = cacheOrder.indexOf(pageNum);
+            if (idx !== -1) {
+                cacheOrder.splice(idx, 1);
+            }
+            cacheOrder.push(pageNum);
+            pageCache[pageNum] = canvasData;
+
+            if (cacheOrder.length > MAX_CACHE_SIZE) {
+                const oldestPage = cacheOrder.shift();
+                delete pageCache[oldestPage];
+            }
+        }
+
+        function getCachedPage(pageNum) {
+            if (pageCache[pageNum]) {
+                const idx = cacheOrder.indexOf(pageNum);
+                if (idx !== -1) {
+                    cacheOrder.splice(idx, 1);
+                    cacheOrder.push(pageNum);
+                }
+                return pageCache[pageNum];
+            }
+            return null;
+        }
+
+        const flatChapters = []; // Flat list of all chapters & sub-topics
+
+        function safeSetText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.innerText = text;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            safeSetText('loading-text', 'Decoding PDF Stream...');
+            
+            // Inline worker initialization safely via Data-URI
+            try {
+                const workerEl = document.getElementById('pdf-worker-code');
+                if (workerEl) {
+                    const workerBase64 = btoa(unescape(encodeURIComponent(workerEl.textContent)));
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'data:text/javascript;base64,' + workerBase64;
+                }
+            } catch(e) { console.warn("Worker setup warning:", e); }
+
+            try {
+                // Decode raw PDF Base64 safely to Uint8Array
+                const binaryString = atob(PDF_B64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+
+                const loadingTask = pdfjsLib.getDocument({ data: bytes });
+                pdfDoc = await loadingTask.promise;
+                totalPages = pdfDoc.numPages;
+                
+                safeSetText('page-total', '/ ' + totalPages);
+                const pageInputEl = document.getElementById('page-input');
+                if (pageInputEl) pageInputEl.max = totalPages;
+                
+                safeSetText('loading-text', 'Initializing Mobile Layout...');
+                await initBook();
+                buildDrawerGrid();
+
+                // Extract and load structured outline chapters
+                safeSetText('loading-text', 'Extracting Bookmarks & Chapters...');
+                await initChaptersOutline();
+                
+                const loadingScreenEl = document.getElementById('loading-screen');
+                if (loadingScreenEl) loadingScreenEl.style.display = 'none';
+                
+                // Auto-Restore Last Read Page Location
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const savedIdx = parseInt(saved, 10);
+                    if (savedIdx >= 0 && savedIdx < totalPages) {
+                        currentPageIndex = savedIdx;
+                    }
+                }
+                
+                setupEvents();
+                // Ensure correct initial page state is loaded and rendered
+                goToPage(currentPageIndex);
+
+            } catch (err) {
+                console.error("PDF Initialization Error:", err);
+                safeSetText('loading-text', 'Error loading document');
+            }
+        });
+
+        async function resolveDest(dest) {
+            if (!dest) return null;
+            try {
+                if (typeof dest === 'string') {
+                    const resolved = await pdfDoc.getDestination(dest);
+                    return await resolveDest(resolved);
+                } else if (Array.isArray(dest)) {
+                    const destRef = dest[0];
+                    if (destRef && typeof destRef === 'object') {
+                        return await pdfDoc.getPageIndex(destRef);
+                    }
+                }
+            } catch (err) {
+                console.warn("Destination resolution failed:", err);
+            }
+            return null;
+        }
+
+        async function parseOutlineRecursive(items, depth = 0) {
+            const parsedList = [];
+            for (const item of items) {
+                let pageIdx = null;
+                if (item.dest) {
+                    pageIdx = await resolveDest(item.dest);
+                }
+                const parsed = {
+                    title: item.title || "Untitled Topic",
+                    pageIndex: pageIdx,
+                    depth: depth,
+                    items: []
+                };
+                if (pageIdx !== null) {
+                    flatChapters.push(parsed);
+                }
+                if (item.items && item.items.length > 0) {
+                    parsed.items = await parseOutlineRecursive(item.items, depth + 1);
+                }
+                parsedList.push(parsed);
+            }
+            return parsedList;
+        }
+
+        async function initChaptersOutline() {
+            let outline = null;
+            try {
+                outline = await pdfDoc.getOutline();
+            } catch (err) {
+                console.warn("Could not retrieve bookmarks/outline", err);
+            }
+
+            let parsedOutline = [];
+            if (outline && outline.length > 0) {
+                parsedOutline = await parseOutlineRecursive(outline, 0);
+            } else {
+                // Generates fallbacks structure for every 10 pages if PDF outline is absent
+                const interval = Math.max(1, Math.floor(totalPages / 10));
+                for (let i = 0; i < totalPages; i += interval) {
+                    const item = {
+                        title: \`Section starting at Page \${i + 1}\`,
+                        pageIndex: i,
+                        depth: 0,
+                        items: []
+                    };
+                    parsedOutline.push(item);
+                    flatChapters.push(item);
+                }
+            }
+
+            buildChaptersDrawer(parsedOutline);
+        }
+
+        function buildChaptersDrawer(outlineItems) {
+            const listContainer = document.getElementById('chapters-list');
+            if (!listContainer) return;
+            listContainer.innerHTML = '';
+
+            function renderChaptersRecursive(items) {
+                items.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = \`chapter-item\`;
+                    row.id = 'chapter-row-' + item.pageIndex;
+                    row.style.paddingLeft = \`\${item.depth * 16 + 12}px\`;
+
+                    // Safe string concatenation to eliminate template backtick parsing bugs inside the exporter
+                    row.innerHTML = '<span class="chapter-item-title" title="' + item.title + '">' + item.title + '</span><span class="chapter-item-page">P. ' + (item.pageIndex + 1) + '</span>';
+
+                    row.addEventListener('click', () => {
+                        goToPage(item.pageIndex);
+                        toggleChaptersDrawer(false);
+                    });
+                    listContainer.appendChild(row);
+                    if (item.items && item.items.length > 0) {
+                        renderChaptersRecursive(item.items);
+                    }
+                });
+            }
+
+            renderChaptersRecursive(outlineItems);
+        }
+
+        function updateChaptersDrawerActive(idx) {
+            document.querySelectorAll('.chapter-item').forEach(el => {
+                el.classList.remove('active');
+            });
+            const activeRow = document.getElementById('chapter-row-' + idx);
+            if (activeRow) activeRow.classList.add('active');
+        }
+
+        async function animateMobilePageFlip(oldIdx, newIdx, direction) {
+            const oldPage = document.getElementById('page-' + oldIdx);
+            const newPage = document.getElementById('page-' + newIdx);
+            if (!oldPage || !newPage) {
+                // If elements are missing, immediately set active class with zero transitions
+                document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
+                    if (idx === newIdx) el.classList.add('active-mobile-page');
+                    else el.classList.remove('active-mobile-page', 'flip-left');
+                });
+                return;
+            }
+
+            // Remove any leftover animation classes from other pages
+            document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
+                if (idx !== oldIdx && idx !== newIdx) {
+                    el.classList.remove('active-mobile-page', 'flip-left');
+                }
+            });
+
+            if (direction === 'next') {
+                // Next page is placed directly below, old page flips left
+                oldPage.classList.add('flip-left');
+                oldPage.classList.remove('active-mobile-page');
+                newPage.classList.add('active-mobile-page');
+            } else {
+                // Previous page starts flipped left, then rotates smoothly back to center
+                oldPage.classList.remove('active-mobile-page');
+                newPage.classList.add('flip-left');
+                newPage.classList.add('active-mobile-page');
+
+                // Force layout reflow
+                newPage.offsetHeight;
+                newPage.classList.remove('flip-left');
+            }
+
+            setTimeout(() => {
+                oldPage.classList.remove('flip-left');
+                document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
+                    if (idx === newIdx) el.classList.add('active-mobile-page');
+                    else el.classList.remove('active-mobile-page', 'flip-left');
+                });
+            }, 600);
+        }
+
+        async function goToPage(p) {
+            if (p < 0 || p >= totalPages) return;
+            const oldIdx = currentPageIndex;
+            currentPageIndex = p;
+
+            const pageInputEl = document.getElementById('page-input');
+            if (pageInputEl) pageInputEl.value = p + 1;
+            localStorage.setItem(STORAGE_KEY, p);
+            updateDrawerActive(p);
+            updateChaptersDrawerActive(p);
+            lazyRender(p);
+
+            if (isMobileMode) {
+                if (oldIdx !== p) {
+                    const direction = p > oldIdx ? 'next' : 'prev';
+                    await animateMobilePageFlip(oldIdx, p, direction);
+                } else {
+                    document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
+                        if (idx === p) {
+                            el.classList.add('active-mobile-page');
+                        } else {
+                            el.classList.remove('active-mobile-page', 'flip-left');
+                        }
+                    });
+                }
+            } else {
+                if (pageFlip && pageFlip.getCurrentPageIndex() !== p) {
+                    pageFlip.flip(p);
+                }
+            }
+        }
+
+        async function initBook() {
+            const vp = document.getElementById('flipbook-viewport');
+            const container = document.getElementById('flipbook-container');
+            if (!vp || !container) return;
+
+            container.innerHTML = '';
+            pdfPages = new Array(totalPages).fill(null);
+            isMobileMode = window.innerWidth < 768;
+            
+            const p1 = await pdfDoc.getPage(1);
+            
+            // Fetch native PDF page dimensions
+            const pdfPageWidth = p1.view[2] - p1.view[0];
+            const pdfPageHeight = p1.view[3] - p1.view[1];
+            
+            // Calculate available viewport dimensions
+            const topBarHeight = 50;
+            const availWidth = window.innerWidth;
+            const availHeight = window.innerHeight - topBarHeight;
+            
+            // Calculate fit-to-screen scale factor
+            const scaleX = availWidth / pdfPageWidth;
+            const scaleY = availHeight / pdfPageHeight;
+            fitScale = Math.min(scaleX, scaleY);
+            
+            flipbookWidth = Math.floor(pdfPageWidth * fitScale);
+            flipbookHeight = Math.floor(pdfPageHeight * fitScale);
+            
+            for (let i = 0; i < totalPages; i++) {
+                const d = document.createElement('div');
+                d.className = 'page-wrapper';
+                d.id = 'page-' + i;
+                if (!isMobileMode) {
+                    d.style.width = flipbookWidth + 'px';
+                    d.style.height = flipbookHeight + 'px';
+                }
+                d.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
+                container.appendChild(d);
+            }
+            
+            if (pageFlip) {
+                try { pageFlip.destroy(); } catch(err) {}
+                pageFlip = null;
+            }
+            
+            if (!isMobileMode) {
+                pageFlip = new St.PageFlip(container, {
+                    width: flipbookWidth,
+                    height: flipbookHeight,
+                    size: "fixed",
+                    minWidth: 200,
+                    maxWidth: 2000,
+                    minHeight: 300,
+                    maxHeight: 2500,
+                    drawShadow: true,
+                    showCover: false,
+                    usePortrait: true, // Forces 1-page mode
+                    startPage: currentPageIndex,
+                    autoSize: false,
+                    mobileScrollSupport: false,
+                    clickToFlip: true
+                });
+
+                pageFlip.loadFromHTML(document.querySelectorAll('.page-wrapper'));
+
+                pageFlip.on('flip', (e) => {
+                    const p = e.data;
+                    goToPage(p);
+                });
+            }
+        }
+
+        async function renderPage(pageNum) {
+            if (pageNum < 0 || pageNum >= totalPages) return;
+            if (pdfPages[pageNum] === 'done' || pdfPages[pageNum] === 'rendering') return;
+            pdfPages[pageNum] = 'rendering';
+            
+            try {
+                // Paint instantly from high-efficiency memory cache if available
+                const cached = getCachedPage(pageNum);
+                if (cached) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = cached.width;
+                    canvas.height = cached.height;
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(cached.image, 0, 0);
+
+                    const el = document.getElementById('page-' + pageNum);
+                    if (el) {
+                        el.innerHTML = '';
+                        el.appendChild(canvas);
+                    }
+                    pdfPages[pageNum] = 'done';
+                    return;
+                }
+
+                const page = await pdfDoc.getPage(pageNum + 1);
+                const viewport = page.getViewport({ scale: 1.0 });
+
+                // SMART CONTENT BOUNDING-BOX DETECTION
+                let minX = viewport.width;
+                let minY = viewport.height;
+                let maxX = 0;
+                let maxY = 0;
+                let hasText = false;
+
+                try {
+                    const textContent = await page.getTextContent();
+                    textContent.items.forEach(item => {
+                        const textStr = item.str || '';
+                        if (!textStr.trim()) return;
+
+                        const tx = item.transform[4];
+                        const ty = item.transform[5];
+                        const [vx, vy] = viewport.convertToViewportPoint(tx, ty);
+
+                        const itemWidth = item.width || 0;
+                        const itemHeight = item.height || 0;
+                        const [vrx, vby] = viewport.convertToViewportPoint(tx + itemWidth, ty + itemHeight);
+
+                        minX = Math.min(minX, vx, vrx);
+                        minY = Math.min(minY, vy, vby);
+                        maxX = Math.max(maxX, vx, vrx);
+                        maxY = Math.max(maxY, vy, vby);
+                        hasText = true;
+                    });
+                } catch(boxErr) {
+                    console.warn("Bounding box analysis error:", boxErr);
+                }
+
+                // Fallback if no text, or tiny/invalid box
+                if (!hasText || (maxX - minX < 50) || (maxY - minY < 50)) {
+                    minX = 0;
+                    minY = 0;
+                    maxX = viewport.width;
+                    maxY = viewport.height;
+                }
+
+                // Add horizontal (12px) and vertical (40px safety buffer) padding margins
+                const paddingX = 12;
+                const paddingY = 40;
+                minX = Math.max(0, minX - paddingX);
+                minY = Math.max(0, minY - paddingY);
+                maxX = Math.min(viewport.width, maxX + paddingX);
+                maxY = Math.min(viewport.height, maxY + paddingY);
+
+                const croppedWidth = maxX - minX;
+                const croppedHeight = maxY - minY;
+
+                const dpr = window.devicePixelRatio || 1;
+                const canvas = document.createElement('canvas');
+
+                if (isMobileMode) {
+                    // Fit-to-screen scale factor based on cropped content bounds
+                    const topBarHeight = 50;
+                    const availWidth = window.innerWidth;
+                    const availHeight = window.innerHeight - topBarHeight;
+
+                    const scaleX = availWidth / croppedWidth;
+                    const scaleY = availHeight / croppedHeight;
+                    const renderScale = Math.min(scaleX, scaleY); // Strict proportional aspect-ratio fit scale
+
+                    // 1. Render FULL page onto off-screen temporary canvas at high DPI scaled correctly
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = Math.floor(viewport.width * renderScale * dpr);
+                    tempCanvas.height = Math.floor(viewport.height * renderScale * dpr);
+
+                    const tempCtx = tempCanvas.getContext('2d', { alpha: false });
+                    const tempRenderContext = {
+                        canvasContext: tempCtx,
+                        viewport: page.getViewport({ scale: renderScale * dpr }) // Directly DPR-scaled viewport
+                    };
+                    await page.render(tempRenderContext).promise;
+
+                    // 2. Prepare final on-screen cropped canvas
+                    canvas.width = Math.floor(croppedWidth * renderScale * dpr);
+                    canvas.height = Math.floor(croppedHeight * renderScale * dpr);
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+
+                    const ctx = canvas.getContext('2d', { alpha: false });
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // Copy only the cropped portion from tempCanvas to final canvas!
+                    ctx.drawImage(
+                        tempCanvas,
+                        Math.floor(minX * renderScale * dpr),
+                        Math.floor(minY * renderScale * dpr),
+                        Math.floor(croppedWidth * renderScale * dpr),
+                        Math.floor(croppedHeight * renderScale * dpr),
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    );
+                } else {
+                    const renderScale = fitScale;
+                    canvas.width = Math.floor(viewport.width * renderScale * dpr);
+                    canvas.height = Math.floor(viewport.height * renderScale * dpr);
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+
+                    const ctx = canvas.getContext('2d', { alpha: false });
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    const renderContext = {
+                        canvasContext: ctx,
+                        viewport: page.getViewport({ scale: renderScale * dpr }) // Scaled by DPR directly for desktop too
+                    };
+                    await page.render(renderContext).promise;
+                }
+                
+                // Cache the fully rendered canvas as high-efficiency Image object
+                try {
+                    const img = new Image();
+                    img.src = canvas.toDataURL('image/jpeg', 0.85);
+                    await new Promise(r => img.onload = r);
+                    cachePageData(pageNum, {
+                        image: img,
+                        width: canvas.width,
+                        height: canvas.height
+                    });
+                } catch(e) {
+                    console.warn("Page image cache creation failed", e);
+                }
+
+                const el = document.getElementById('page-' + pageNum);
+                if (el) {
+                    el.innerHTML = '';
+                    el.appendChild(canvas);
+                }
+                pdfPages[pageNum] = 'done';
+            } catch(err) {
+                console.error("Page Render Failure:", pageNum, err);
+                pdfPages[pageNum] = null;
+            }
+        }
+
+        function lazyRender(currentIdx) {
+            // ONLY keep currentIdx and adjacent pages (N-1 and N+1) inside the viewport
+            const activePages = new Set([currentIdx]);
+            if (currentIdx > 0) activePages.add(currentIdx - 1);
+            if (currentIdx < totalPages - 1) activePages.add(currentIdx + 1);
+            
+            // AUTOMATICALLY purge off-screen canvas contexts and completely release memory
+            for (let i = 0; i < totalPages; i++) {
+                if (!activePages.has(i)) {
+                    if (pdfPages[i] === 'done') {
+                        pdfPages[i] = null; // Eligible to re-render
+                        const el = document.getElementById('page-' + i);
+                        if (el) {
+                            // Erase heavy canvas element entirely to reclaim memory/GPU buffer immediately
+                            el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
+                        }
+                    }
+                }
+            }
+
+            // Render current, N-1, and N+1 pages if they are not loaded yet
+            activePages.forEach(p => {
+                if (!pdfPages[p]) renderPage(p);
+            });
+        }
+
+        function buildDrawerGrid() {
+            const grid = document.getElementById('drawer-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            for (let i = 0; i < totalPages; i++) {
+                const item = document.createElement('div');
+                item.className = 'thumb-item' + (i === 0 ? ' active' : '');
+                item.id = 'thumb-' + i;
+                item.innerHTML = '<span>Page ' + (i + 1) + '</span>';
+                item.addEventListener('click', () => {
+                    goToPage(i);
+                    toggleDrawer(false);
+                });
+                grid.appendChild(item);
+            }
+        }
+
+        function updateDrawerActive(idx) {
+            document.querySelectorAll('.thumb-item').forEach((el, i) => {
+                if (i === idx) el.classList.add('active');
+                else el.classList.remove('active');
+            });
+        }
+
+        function toggleDrawer(open) {
+            const drawer = document.getElementById('thumbs-drawer');
+            if (!drawer) return;
+            if (open === undefined) drawer.classList.toggle('open');
+            else if (open) {
+                drawer.classList.add('open');
+                toggleChaptersDrawer(false); // Mutual exclusion
+            }
+            else drawer.classList.remove('open');
+        }
+
+        function toggleChaptersDrawer(open) {
+            const drawer = document.getElementById('chapters-drawer');
+            if (!drawer) return;
+            if (open === undefined) drawer.classList.toggle('open');
+            else if (open) {
+                drawer.classList.add('open');
+                toggleDrawer(false); // Mutual exclusion
+            }
+            else drawer.classList.remove('open');
+        }
+
+        function setupEvents() {
+            const btnPrev = document.getElementById('btn-prev');
+            if (btnPrev) {
+                btnPrev.addEventListener('click', () => {
+                    goToPage(currentPageIndex - 1);
+                });
+            }
+
+            const btnNext = document.getElementById('btn-next');
+            if (btnNext) {
+                btnNext.addEventListener('click', () => {
+                    goToPage(currentPageIndex + 1);
+                });
+            }
+            
+            const btnThumbs = document.getElementById('btn-thumbs');
+            if (btnThumbs) btnThumbs.addEventListener('click', () => toggleDrawer());
+
+            const btnCloseThumbs = document.getElementById('btn-close-thumbs');
+            if (btnCloseThumbs) btnCloseThumbs.addEventListener('click', () => toggleDrawer(false));
+
+            const btnChapters = document.getElementById('btn-chapters');
+            if (btnChapters) btnChapters.addEventListener('click', () => toggleChaptersDrawer());
+
+            const btnCloseChapters = document.getElementById('btn-close-chapters');
+            if (btnCloseChapters) btnCloseChapters.addEventListener('click', () => toggleChaptersDrawer(false));
+            
+            const pageInput = document.getElementById('page-input');
+            if (pageInput) {
+                pageInput.addEventListener('change', (e) => {
+                    let v = parseInt(e.target.value, 10);
+                    if (v > 0 && v <= totalPages) {
+                        goToPage(v - 1);
+                    }
+                });
+            }
+            
+            const btnFullscreen = document.getElementById('btn-fullscreen');
+            if (btnFullscreen) {
+                btnFullscreen.addEventListener('click', () => {
+                    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+                    else document.exitFullscreen();
+                });
+            }
+            
+            // Search Input Autocomplete & Enter key Validation
+            const searchInput = document.getElementById('search-input');
+            const suggestionsDropdown = document.getElementById('search-suggestions');
+            const searchClearBtn = document.getElementById('search-clear-btn');
+
+            if (searchInput && suggestionsDropdown) {
+                const updateClearBtnVisibility = () => {
+                    if (searchClearBtn) {
+                        if (searchInput.value.length > 0) {
+                            searchClearBtn.classList.remove('hidden');
+                        } else {
+                            searchClearBtn.classList.add('hidden');
+                        }
+                    }
+                };
+
+                searchInput.addEventListener('input', (e) => {
+                    updateClearBtnVisibility();
+                    const query = e.target.value.trim().toLowerCase();
+                    if (!query) {
+                        suggestionsDropdown.classList.add('hidden');
+                        return;
+                    }
+
+                    const suggestions = [];
+
+                    // 1. If direct page match
+                    const pageNum = parseInt(query, 10);
+                    if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
+                        suggestions.push({
+                            title: \`Go to Page \${pageNum}\`,
+                            pageIndex: pageNum - 1
+                        });
+                    }
+
+                    // 2. Filter chapters list matching string
+                    const matches = flatChapters.filter(ch => ch.title.toLowerCase().includes(query));
+                    matches.slice(0, 8).forEach(ch => {
+                        suggestions.push({
+                            title: ch.title,
+                            pageIndex: ch.pageIndex
+                        });
+                    });
+
+                    if (suggestions.length > 0) {
+                        suggestionsDropdown.innerHTML = '';
+                        suggestions.forEach(s => {
+                            const item = document.createElement('div');
+                            item.className = 'suggestion-item';
+
+                            // Safe single quotes concatenation to eliminate template backtick parsing bugs inside the exporter
+                            item.innerHTML = '<span class="suggestion-title">' + s.title + '</span><span class="page-num">P. ' + (s.pageIndex + 1) + '</span>';
+
+                            item.addEventListener('click', () => {
+                                goToPage(s.pageIndex);
+                                searchInput.value = '';
+                                updateClearBtnVisibility();
+                                suggestionsDropdown.classList.add('hidden');
+                            });
+                            suggestionsDropdown.appendChild(item);
+                        });
+                        suggestionsDropdown.classList.remove('hidden');
+                    } else {
+                        suggestionsDropdown.classList.add('hidden');
+                    }
+                });
+
+                if (searchClearBtn) {
+                    const clearAction = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        searchInput.value = '';
+                        updateClearBtnVisibility();
+                        suggestionsDropdown.classList.add('hidden');
+                    };
+                    searchClearBtn.addEventListener('click', clearAction);
+                    searchClearBtn.addEventListener('pointerdown', clearAction);
+                }
+
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        const query = searchInput.value.trim();
+                        if (!query) return;
+
+                        // Direct page number match
+                        const pageNum = parseInt(query, 10);
+                        if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
+                            goToPage(pageNum - 1);
+                            searchInput.value = '';
+                            updateClearBtnVisibility();
+                            suggestionsDropdown.classList.add('hidden');
+                            return;
+                        }
+
+                        // Chapter title match
+                        const matches = flatChapters.filter(ch => ch.title.toLowerCase().includes(query.toLowerCase()));
+                        if (matches.length > 0) {
+                            goToPage(matches[0].pageIndex);
+                            searchInput.value = '';
+                            updateClearBtnVisibility();
+                            suggestionsDropdown.classList.add('hidden');
+                        }
+                    }
+                });
+
+                const dismissDropdown = (e) => {
+                    const searchContainer = document.querySelector('.search-container');
+                    if (searchContainer && !searchContainer.contains(e.target)) {
+                        suggestionsDropdown.classList.add('hidden');
+                    }
+                };
+                document.addEventListener('click', dismissDropdown);
+                document.addEventListener('pointerdown', dismissDropdown);
+            }
+
+            const vp = document.getElementById('flipbook-viewport');
+            const stage = document.getElementById('zoom-stage');
+            if (!vp || !stage) return;
+
+            function updateTransform() {
+                if (zoomLevel <= 1.01) {
+                    zoomLevel = 1.0; panX = 0; panY = 0;
+                    stage.style.transform = 'none';
+                    stage.style.cursor = 'default';
+                } else {
+                    const maxPx = (vp.clientWidth * (zoomLevel - 1)) / 1.5;
+                    const maxPy = (vp.clientHeight * (zoomLevel - 1)) / 1.5;
+                    panX = Math.max(-maxPx, Math.min(maxPx, panX));
+                    panY = Math.max(-maxPy, Math.min(maxPy, panY));
+                    stage.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoomLevel + ')';
+                    stage.style.cursor = 'grab';
+                }
+            }
+            
+            function getTouchDist(t1, t2) {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.sqrt(dx*dx + dy*dy);
+            }
+            
+            // Touch, Pinch-to-Zoom Controls & Swipe Gestures
+            let touchStartX = 0;
+            let touchStartY = 0;
+            vp.addEventListener('touchstart', e => {
+                if (e.touches.length === 2) {
+                    touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+                    touchStartZoom = zoomLevel;
+                    isPanning = false;
+                } else if (e.touches.length === 1) {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    const now = Date.now();
+                    if (now - lastTapTime < 300) {
+                        zoomLevel = zoomLevel > 1.05 ? 1.0 : 2.0;
+                        updateTransform();
+                        lastTapTime = 0; return;
+                    }
+                    lastTapTime = now;
+                    if (zoomLevel > 1.01) {
+                        isPanning = true;
+                        touchStartPos = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+                        touchStartPan = {x: panX, y: panY};
+                    }
+                }
+            }, {passive: false});
+            
+            vp.addEventListener('touchmove', e => {
+                if (e.touches.length === 2 && touchStartDist > 0) {
+                    e.preventDefault();
+                    const dist = getTouchDist(e.touches[0], e.touches[1]);
+                    zoomLevel = Math.max(1.0, Math.min(3.5, touchStartZoom * (dist / touchStartDist)));
+                    updateTransform();
+                } else if (e.touches.length === 1 && isPanning && zoomLevel > 1.01) {
+                    e.preventDefault();
+                    panX = touchStartPan.x + (e.touches[0].clientX - touchStartPos.x);
+                    panY = touchStartPan.y + (e.touches[0].clientY - touchStartPos.y);
+                    updateTransform();
+                }
+            }, {passive: false});
+            
+            vp.addEventListener('touchend', e => {
+                if (e.touches.length < 2) touchStartDist = 0;
+                if (e.touches.length === 0) {
+                    isPanning = false;
+                }
+
+                // Native Mobile Swipe Detection (when not zoomed in)
+                if (isMobileMode && zoomLevel <= 1.01 && e.changedTouches.length === 1) {
+                    const deltaX = e.changedTouches[0].clientX - touchStartX;
+                    const deltaY = e.changedTouches[0].clientY - touchStartY;
+
+                    // Swipe horizontally if horizontal distance is significantly larger than vertical distance
+                    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                        if (deltaX < 0) {
+                            goToPage(currentPageIndex + 1);
+                        } else {
+                            goToPage(currentPageIndex - 1);
+                        }
+                    }
+                }
+            });
+            
+            vp.addEventListener('wheel', e => {
+                if (e.ctrlKey || zoomLevel > 1.01) {
+                    e.preventDefault();
+                    zoomLevel = Math.max(1.0, Math.min(3.5, zoomLevel + (e.deltaY < 0 ? 0.2 : -0.2)));
+                    updateTransform();
+                }
+            }, {passive: false});
+
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => { 
+                    const cp = currentPageIndex;
+                    initBook().then(() => {
+                        goToPage(cp);
+                    });
+                }, 200);
+            });
+        }
+    ${scriptClose}
+</body>
+</html>`;
+}
+
+</script>
+</body>
+</html>
