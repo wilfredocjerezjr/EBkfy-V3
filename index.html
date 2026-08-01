@@ -1404,6 +1404,18 @@ ${safePdfWorker}
                         const itemHeight = item.height || 0;
                         const [vrx, vby] = viewport.convertToViewportPoint(tx + itemWidth, ty + itemHeight);
 
+                        // --- OUTLIER TEXT FILTERING (IGNORE ISOLATED EDGE PAGE NUMBERS) ---
+                        const item_minX = Math.min(vx, vrx);
+                        const item_maxX = Math.max(vx, vrx);
+                        const leftMarginBound = viewport.width * 0.08;
+                        const rightMarginBound = viewport.width * 0.92;
+                        const isAtLeftMargin = item_maxX < leftMarginBound;
+                        const isAtRightMargin = item_minX > rightMarginBound;
+
+                        if ((isAtLeftMargin || isAtRightMargin) && textStr.trim().length < 20) {
+                            return; // Ignore standalone page numbers / minor running heads in outer 8% margins
+                        }
+
                         minX = Math.min(minX, vx, vrx);
                         minY = Math.min(minY, vy, vby);
                         maxX = Math.max(maxX, vx, vrx);
@@ -1414,21 +1426,68 @@ ${safePdfWorker}
                     console.warn("Bounding box analysis error:", boxErr);
                 }
 
-                // Fallback if no text, or tiny/invalid box
-                if (!hasText || (maxX - minX < 50) || (maxY - minY < 50)) {
+                // --- IMAGE & DIAGRAM PRESERVATION GUARDRAIL ---
+                let hasImage = false;
+                let hasMarginGraphics = false;
+
+                try {
+                    const opList = await page.getOperatorList();
+                    const OPS = pdfjsLib.OPS || {};
+                    const imageOps = [
+                        OPS.paintImageXObject,
+                        OPS.paintInlineImageXObject,
+                        OPS.paintJpegXObject,
+                        OPS.paintImageMaskXObject
+                    ].filter(op => op !== undefined);
+
+                    for (let k = 0; k < opList.fnArray.length; k++) {
+                        const fn = opList.fnArray[k];
+                        if (imageOps.includes(fn)) {
+                            hasImage = true;
+                        }
+                        if (fn === OPS.constructPath) {
+                            const args = opList.argsArray[k];
+                            if (args && args[1] && args[1].length >= 2) {
+                                const coords = args[1];
+                                for (let j = 0; j < coords.length - 1; j += 2) {
+                                    const tx = coords[j];
+                                    const ty = coords[j+1];
+                                    if (typeof tx === 'number' && typeof ty === 'number' && !isNaN(tx) && !isNaN(ty)) {
+                                        const [vx, vy] = viewport.convertToViewportPoint(tx, ty);
+                                        if (vx < viewport.width * 0.08 || vx > viewport.width * 0.92) {
+                                            hasMarginGraphics = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (opErr) {
+                    console.warn("Operator list parsing failed:", opErr);
+                }
+
+                if (hasImage || hasMarginGraphics) {
                     minX = 0;
                     minY = 0;
                     maxX = viewport.width;
                     maxY = viewport.height;
-                }
+                } else {
+                    // Fallback if no text, or tiny/invalid box
+                    if (!hasText || (maxX - minX < 50) || (maxY - minY < 50)) {
+                        minX = 0;
+                        minY = 0;
+                        maxX = viewport.width;
+                        maxY = viewport.height;
+                    }
 
-                // Add horizontal (12px) and vertical (40px safety buffer) padding margins
-                const paddingX = 12;
-                const paddingY = 40;
-                minX = Math.max(0, minX - paddingX);
-                minY = Math.max(0, minY - paddingY);
-                maxX = Math.min(viewport.width, maxX + paddingX);
-                maxY = Math.min(viewport.height, maxY + paddingY);
+                    // Add horizontal (12px) and vertical (40px safety buffer) padding margins
+                    const paddingX = 12;
+                    const paddingY = 40;
+                    minX = Math.max(0, minX - paddingX);
+                    minY = Math.max(0, minY - paddingY);
+                    maxX = Math.min(viewport.width, maxX + paddingX);
+                    maxY = Math.min(viewport.height, maxY + paddingY);
+                }
 
                 const croppedWidth = maxX - minX;
                 const croppedHeight = maxY - minY;
