@@ -812,6 +812,148 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
         .chapter-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
         .chapter-item-page { font-size: 10px; font-weight: 700; color: #64748B; }
 
+        /* Clean Continuous Reader Mode View */
+        #reader-view-container {
+            position: fixed;
+            top: calc(50px + var(--sat));
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 40;
+            background-color: #FAF6F0;
+            overflow-y: auto;
+            padding: 24px 16px 90px 16px;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            user-select: text;
+            -webkit-user-select: text;
+            touch-action: pan-y;
+        }
+        #reader-view-container.active {
+            display: flex;
+        }
+        .reader-content-card {
+            width: 100%;
+            max-width: 720px;
+            background: #FFFFFF;
+            border: 1px solid #EAE3D9;
+            border-radius: 16px;
+            padding: 32px 28px;
+            box-shadow: 0 4px 25px rgba(0,0,0,0.03);
+            margin-bottom: 24px;
+        }
+        .reader-page-header {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #6366F1;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed #E2E8F0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .reader-text-paragraph {
+            font-size: 15px;
+            line-height: 1.75;
+            color: #1E293B;
+            margin-bottom: 16px;
+            word-break: break-word;
+        }
+        .tts-highlight {
+            background-color: #E0E7FF !important;
+            color: #3730A3 !important;
+            border-radius: 4px;
+            padding: 2px 4px;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        /* Bottom Audio Toolbar */
+        #audio-bar {
+            position: fixed;
+            bottom: calc(16px + var(--sab));
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 70;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 9999px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+            color: #FFFFFF;
+            max-width: 92vw;
+            width: 480px;
+        }
+        .audio-info {
+            flex: 1;
+            min-width: 0;
+            font-size: 11px;
+            font-weight: 600;
+            color: #CBD5E1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .audio-controls-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            shrink: 0;
+        }
+        .btn-audio {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #FFFFFF;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            transition: all 0.2s;
+        }
+        .btn-audio:hover {
+            background: rgba(255,255,255,0.25);
+            transform: scale(1.05);
+        }
+        .btn-audio:active {
+            transform: scale(0.95);
+        }
+        .btn-audio-primary {
+            background: #6366F1;
+            width: 36px;
+            height: 36px;
+        }
+        .btn-audio-primary:hover {
+            background: #4F46E5;
+        }
+        .speed-select {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #FFFFFF;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 12px;
+            padding: 4px 6px;
+            outline: none;
+            cursor: pointer;
+        }
+        .speed-select option {
+            background: #0F172A;
+            color: #FFFFFF;
+        }
+
         /* Loading Screen */
         #loading-screen {
             position: fixed; inset: 0; background: #f3f4f6; z-index: 100;
@@ -895,26 +1037,19 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
 
         <header>
             <div class="header-left">
-                <div class="header-title">
-                    <h1>${safeTitle}</h1>
-                    <p>${safeAuthor}</p>
-                </div>
-            </div>
-            
-            <div class="header-center">
                 <div class="search-container">
-                    <input type="text" id="search-input" placeholder="Search chapters, pages...">
+                    <input type="text" id="search-input" placeholder="Search document text...">
                     <button id="search-clear-btn" class="hidden" type="button" style="position: absolute; right: 28px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #64748B; display: flex; align-items: center; justify-content: center; padding: 0;">
                         <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.5; fill: none;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
-                    <button class="search-btn" id="search-btn">
+                    <button class="search-btn" id="search-btn" title="Search">
                         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                     </button>
                     <div id="search-suggestions" class="search-suggestions-dropdown hidden"></div>
                 </div>
             </div>
             
-            <div class="header-right">
+            <div class="header-center">
                 <div class="toolbar-group">
                     <button class="btn" id="btn-prev" title="Previous Page">
                         <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -926,13 +1061,21 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
                     <button class="btn" id="btn-next" title="Next Page">
                         <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
                     </button>
-                    <button class="btn" id="btn-thumbs" title="Page Thumbnails">
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="toolbar-group">
+                    <button class="btn" id="btn-thumbs" title="Pages Drawer (Grid)">
                         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    </button>
+                    <button class="btn" id="btn-reader-mode" title="Clean Reader Mode">
+                        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
                     </button>
                     <button class="btn" id="btn-fullscreen" title="Fullscreen">
                         <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
                     </button>
-                    <button class="btn" id="btn-chapters" title="Chapters Drawer">
+                    <button class="btn" id="btn-chapters" title="Chapters & Topics Drawer">
                         <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                     </button>
                 </div>
@@ -965,6 +1108,28 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
         <div id="flipbook-viewport">
             <div id="zoom-stage">
                 <div id="flipbook-container"></div>
+            </div>
+        </div>
+
+        <!-- CLEAN CONTINUOUS READER MODE CONTAINER -->
+        <div id="reader-view-container">
+            <div id="reader-cards-wrapper" style="width: 100%; max-width: 720px; display: flex; flex-direction: column; align-items: center;"></div>
+        </div>
+
+        <!-- FLOATING BOTTOM AUDIO TOOLBAR -->
+        <div id="audio-bar">
+            <div class="audio-info" id="audio-info">Page 1 • Ready to play</div>
+            <div class="audio-controls-group">
+                <button class="btn-audio" id="btn-audio-prev" title="Skip Back Sentence">|&lt;</button>
+                <button class="btn-audio btn-audio-primary" id="btn-audio-play" title="Play / Pause">▷</button>
+                <button class="btn-audio" id="btn-audio-next" title="Skip Forward Sentence">&gt;|</button>
+                <select class="speed-select" id="audio-speed" title="Speed Selector">
+                    <option value="0.75">0.75x</option>
+                    <option value="1.0" selected>1.0x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2.0">2.0x</option>
+                </select>
             </div>
         </div>
     </div>
@@ -1036,6 +1201,315 @@ ${safePdfWorker}
         }
 
         const flatChapters = []; // Flat list of all chapters & sub-topics
+        const extractedTextPages = {}; // Cache sanitized text per page index
+        let isReaderMode = false;
+
+        // TTS Engine state
+        let ttsSentences = [];
+        let ttsCurrentSentenceIdx = 0;
+        let ttsPlaying = false;
+        let ttsUtterance = null;
+        let ttsVoice = null;
+        let ttsSpeed = 1.0;
+
+        function initTtsVoices() {
+            if (!('speechSynthesis' in window)) return;
+            const selectVoice = () => {
+                const voices = window.speechSynthesis.getVoices();
+                if (!voices || !voices.length) return;
+                const priorityKeywords = ["Natural", "Female", "Google US English", "Samantha", "Zira", "Victoria", "Karen", "Siri"];
+                for (const kw of priorityKeywords) {
+                    const match = voices.find(v => v.name.includes(kw));
+                    if (match) {
+                        ttsVoice = match;
+                        break;
+                    }
+                }
+                if (!ttsVoice && voices.length) {
+                    ttsVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                }
+            };
+            selectVoice();
+            if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                window.speechSynthesis.onvoiceschanged = selectVoice;
+            }
+        }
+
+        async function prepareTtsForCurrentPage() {
+            const text = await getPageSanitizedText(currentPageIndex);
+            if (!text) {
+                ttsSentences = ["No text available on page " + (currentPageIndex + 1)];
+            } else {
+                // Split text into sentences for fine-grained highlighting
+                ttsSentences = text.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [text];
+                ttsSentences = ttsSentences.map(s => sanitizeText(s)).filter(Boolean);
+            }
+            ttsCurrentSentenceIdx = 0;
+            updateAudioInfoDisplay();
+        }
+
+        function updateAudioInfoDisplay() {
+            const infoEl = document.getElementById('audio-info');
+            if (!infoEl) return;
+            const sText = ttsSentences[ttsCurrentSentenceIdx] || '';
+            const preview = sText.length > 30 ? sText.substring(0, 30) + '...' : sText;
+            infoEl.textContent = 'Page ' + (currentPageIndex + 1) + ' • ' + (preview || 'Ready to play');
+        }
+
+        function highlightTtsSentence(sentenceIdx) {
+            // Remove previous highlights
+            document.querySelectorAll('.tts-highlight').forEach(el => {
+                el.classList.remove('tts-highlight');
+            });
+
+            if (isReaderMode) {
+                const cardBody = document.getElementById('reader-card-body-' + currentPageIndex);
+                if (cardBody) {
+                    const paragraphs = cardBody.querySelectorAll('.reader-text-paragraph');
+                    if (paragraphs.length) {
+                        // Highlight current paragraph/sentence
+                        const targetP = paragraphs[Math.min(sentenceIdx, paragraphs.length - 1)];
+                        if (targetP) {
+                            targetP.classList.add('tts-highlight');
+                            targetP.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        }
+                    }
+                }
+            }
+        }
+
+        function speakCurrentTtsSentence() {
+            if (!('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+
+            if (ttsCurrentSentenceIdx >= ttsSentences.length) {
+                // Advance to next page if available
+                if (currentPageIndex < totalPages - 1) {
+                    goToPage(currentPageIndex + 1).then(async () => {
+                        await prepareTtsForCurrentPage();
+                        speakCurrentTtsSentence();
+                    });
+                } else {
+                    stopTts();
+                }
+                return;
+            }
+
+            const sentence = ttsSentences[ttsCurrentSentenceIdx];
+            updateAudioInfoDisplay();
+            highlightTtsSentence(ttsCurrentSentenceIdx);
+
+            ttsUtterance = new SpeechSynthesisUtterance(sentence);
+            if (ttsVoice) ttsUtterance.voice = ttsVoice;
+            ttsUtterance.rate = ttsSpeed;
+
+            ttsUtterance.onend = () => {
+                if (ttsPlaying) {
+                    ttsCurrentSentenceIdx++;
+                    speakCurrentTtsSentence();
+                }
+            };
+
+            ttsUtterance.onerror = (e) => {
+                console.warn('TTS Speech Synthesis error:', e);
+                if (ttsPlaying) {
+                    ttsCurrentSentenceIdx++;
+                    speakCurrentTtsSentence();
+                }
+            };
+
+            window.speechSynthesis.speak(ttsUtterance);
+        }
+
+        function playTts() {
+            ttsPlaying = true;
+            const playBtn = document.getElementById('btn-audio-play');
+            if (playBtn) playBtn.textContent = '||';
+            if (!ttsSentences.length) {
+                prepareTtsForCurrentPage().then(() => speakCurrentTtsSentence());
+            } else {
+                speakCurrentTtsSentence();
+            }
+        }
+
+        function pauseTts() {
+            ttsPlaying = false;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.pause();
+            }
+            const playBtn = document.getElementById('btn-audio-play');
+            if (playBtn) playBtn.textContent = '▷';
+        }
+
+        function stopTts() {
+            ttsPlaying = false;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            document.querySelectorAll('.tts-highlight').forEach(el => el.classList.remove('tts-highlight'));
+            const playBtn = document.getElementById('btn-audio-play');
+            if (playBtn) playBtn.textContent = '▷';
+        }
+
+        function toggleTtsPlayPause() {
+            if (ttsPlaying) {
+                pauseTts();
+            } else {
+                if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+                    ttsPlaying = true;
+                    window.speechSynthesis.resume();
+                    const playBtn = document.getElementById('btn-audio-play');
+                    if (playBtn) playBtn.textContent = '||';
+                } else {
+                    playTts();
+                }
+            }
+        }
+
+        function skipTtsSentence(dir) {
+            ttsCurrentSentenceIdx += dir;
+            if (ttsCurrentSentenceIdx < 0) {
+                if (currentPageIndex > 0) {
+                    goToPage(currentPageIndex - 1).then(async () => {
+                        await prepareTtsForCurrentPage();
+                        ttsCurrentSentenceIdx = Math.max(0, ttsSentences.length - 1);
+                        if (ttsPlaying) speakCurrentTtsSentence();
+                        else updateAudioInfoDisplay();
+                    });
+                    return;
+                } else {
+                    ttsCurrentSentenceIdx = 0;
+                }
+            } else if (ttsCurrentSentenceIdx >= ttsSentences.length) {
+                if (currentPageIndex < totalPages - 1) {
+                    goToPage(currentPageIndex + 1).then(async () => {
+                        await prepareTtsForCurrentPage();
+                        ttsCurrentSentenceIdx = 0;
+                        if (ttsPlaying) speakCurrentTtsSentence();
+                        else updateAudioInfoDisplay();
+                    });
+                    return;
+                } else {
+                    ttsCurrentSentenceIdx = ttsSentences.length - 1;
+                }
+            }
+
+            if (ttsPlaying) {
+                speakCurrentTtsSentence();
+            } else {
+                updateAudioInfoDisplay();
+                highlightTtsSentence(ttsCurrentSentenceIdx);
+            }
+        }
+
+        function sanitizeText(rawText) {
+            if (!rawText) return '';
+            return rawText
+                .replace(/\s+/g, ' ')
+                .replace(/\s+([.,!?:;])/g, '$1')
+                .trim();
+        }
+
+        async function getPageSanitizedText(pageIdx) {
+            if (extractedTextPages[pageIdx] !== undefined) {
+                return extractedTextPages[pageIdx];
+            }
+            try {
+                const page = await pdfDoc.getPage(pageIdx + 1);
+                const textContent = await page.getTextContent();
+                let rawText = '';
+                let lastY = null;
+                for (const item of textContent.items) {
+                    if (lastY !== null && Math.abs(item.transform[5] - lastY) > 8) {
+                        rawText += '\n';
+                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\n')) {
+                        rawText += ' ';
+                    }
+                    rawText += item.str;
+                    lastY = item.transform[5];
+                }
+                const cleaned = sanitizeText(rawText);
+                extractedTextPages[pageIdx] = cleaned;
+                return cleaned;
+            } catch (err) {
+                console.warn('Error extracting text for page ' + (pageIdx + 1), err);
+                extractedTextPages[pageIdx] = '';
+                return '';
+            }
+        }
+
+        async function renderReaderView() {
+            const wrapper = document.getElementById('reader-cards-wrapper');
+            if (!wrapper) return;
+            wrapper.innerHTML = '';
+
+            for (let i = 0; i < totalPages; i++) {
+                const card = document.createElement('div');
+                card.className = 'reader-content-card';
+                card.id = 'reader-card-' + i;
+                card.dataset.page = i;
+
+                const header = document.createElement('div');
+                header.className = 'reader-page-header';
+                header.innerHTML = '<span>Page ' + (i + 1) + ' of ' + totalPages + '</span><span>${safeTitle}</span>';
+                card.appendChild(header);
+
+                const body = document.createElement('div');
+                body.className = 'reader-card-body';
+                body.id = 'reader-card-body-' + i;
+                body.innerHTML = '<div style="color: #94A3B8; font-size: 13px; font-weight: 500;">Loading text...</div>';
+                card.appendChild(body);
+
+                wrapper.appendChild(card);
+            }
+
+            for (let i = 0; i < totalPages; i++) {
+                const text = await getPageSanitizedText(i);
+                const bodyEl = document.getElementById('reader-card-body-' + i);
+                if (bodyEl) {
+                    bodyEl.innerHTML = '';
+                    if (!text) {
+                        bodyEl.innerHTML = '<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(No extractable text on this page)</p>';
+                    } else {
+                        const paragraphs = text.split(/\n+/);
+                        paragraphs.forEach((pText, pIdx) => {
+                            const cleanP = sanitizeText(pText);
+                            if (cleanP) {
+                                const pEl = document.createElement('p');
+                                pEl.className = 'reader-text-paragraph';
+                                pEl.id = 'reader-p-' + i + '-' + pIdx;
+                                pEl.textContent = cleanP;
+                                bodyEl.appendChild(pEl);
+                            }
+                        });
+                    }
+                }
+            }
+
+            const activeCard = document.getElementById('reader-card-' + currentPageIndex);
+            if (activeCard) {
+                activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            }
+        }
+
+        function toggleReaderMode(enable) {
+            isReaderMode = enable !== undefined ? enable : !isReaderMode;
+            const vp = document.getElementById('flipbook-viewport');
+            const rv = document.getElementById('reader-view-container');
+            const btnReader = document.getElementById('btn-reader-mode');
+
+            if (isReaderMode) {
+                if (vp) vp.style.display = 'none';
+                if (rv) rv.classList.add('active');
+                if (btnReader) btnReader.style.color = '#6366F1';
+                renderReaderView();
+            } else {
+                if (rv) rv.classList.remove('active');
+                if (vp) vp.style.display = 'flex';
+                if (btnReader) btnReader.style.color = '#475569';
+                goToPage(currentPageIndex);
+            }
+        }
 
         function safeSetText(id, text) {
             const el = document.getElementById(id);
@@ -1090,6 +1564,8 @@ ${safePdfWorker}
                 }
                 
                 setupEvents();
+            initTtsVoices();
+            prepareTtsForCurrentPage();
                 // Ensure correct initial page state is loaded and rendered
                 goToPage(currentPageIndex);
 
@@ -1701,6 +2177,29 @@ ${safePdfWorker}
 
             const btnCloseChapters = document.getElementById('btn-close-chapters');
             if (btnCloseChapters) btnCloseChapters.addEventListener('click', () => toggleChaptersDrawer(false));
+
+            const btnReaderMode = document.getElementById('btn-reader-mode');
+            if (btnReaderMode) btnReaderMode.addEventListener('click', () => toggleReaderMode());
+
+            // TTS Toolbar Controls
+            const btnAudioPlay = document.getElementById('btn-audio-play');
+            if (btnAudioPlay) btnAudioPlay.addEventListener('click', () => toggleTtsPlayPause());
+
+            const btnAudioPrev = document.getElementById('btn-audio-prev');
+            if (btnAudioPrev) btnAudioPrev.addEventListener('click', () => skipTtsSentence(-1));
+
+            const btnAudioNext = document.getElementById('btn-audio-next');
+            if (btnAudioNext) btnAudioNext.addEventListener('click', () => skipTtsSentence(1));
+
+            const speedSelect = document.getElementById('audio-speed');
+            if (speedSelect) {
+                speedSelect.addEventListener('change', (e) => {
+                    ttsSpeed = parseFloat(e.target.value) || 1.0;
+                    if (ttsPlaying) {
+                        speakCurrentTtsSentence();
+                    }
+                });
+            }
             
             const pageInput = document.getElementById('page-input');
             if (pageInput) {
