@@ -441,10 +441,27 @@ if (btnExport) {
             updateStepStatus(3, 'active');
             setProgress(55, 'Fetching & Bundling Offline Rendering Scripts...');
             
+            async function fetchWithTimeout(url, timeoutMs = 6000) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    const res = await fetch(url, { signal: controller.signal });
+                    clearTimeout(timer);
+                    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+                    return res;
+                } catch (err) {
+                    clearTimeout(timer);
+                    if (err.name === 'AbortError') {
+                        throw new Error(`Connection timed out fetching resource: ${url}`);
+                    }
+                    throw err;
+                }
+            }
+
             const [pdfJsRes, pdfWorkerRes, pageFlipRes] = await Promise.all([
-                fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'),
-                fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'),
-                fetch('https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js')
+                fetchWithTimeout('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'),
+                fetchWithTimeout('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'),
+                fetchWithTimeout('https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js')
             ]);
 
             const pdfJsCode = await pdfJsRes.text();
@@ -483,6 +500,7 @@ if (btnExport) {
 
         } catch (err) {
             console.error("Export Engine Exception:", err);
+            alert("Export error: " + (err.message || err));
             if (processingContainer) processingContainer.classList.add('hidden');
             if (formContainer) formContainer.classList.remove('hidden');
         }
@@ -1528,6 +1546,22 @@ ${safePdfWorker}
                 }
             } catch(e) { console.warn("Worker setup warning:", e); }
 
+            // 8-second safety fallback timer for initialization
+            const initSafetyTimeout = setTimeout(() => {
+                const loadingScreenEl = document.getElementById('loading-screen');
+                if (loadingScreenEl && loadingScreenEl.style.display !== 'none') {
+                    safeSetText('loading-text', 'Loading taking longer than expected... Click to try rendering.');
+                    const btnRetry = document.createElement('button');
+                    btnRetry.innerText = 'Dismiss Loading Screen';
+                    btnRetry.style.cssText = 'margin-top:12px;padding:8px 16px;background:#6366F1;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;';
+                    btnRetry.onclick = () => { loadingScreenEl.style.display = 'none'; };
+                    if (!document.getElementById('retry-init-btn')) {
+                        btnRetry.id = 'retry-init-btn';
+                        loadingScreenEl.appendChild(btnRetry);
+                    }
+                }
+            }, 8000);
+
             try {
                 // Decode raw PDF Base64 safely to Uint8Array
                 const binaryString = atob(PDF_B64);
@@ -1542,19 +1576,8 @@ ${safePdfWorker}
                 safeSetText('page-total', '/ ' + totalPages);
                 const pageInputEl = document.getElementById('page-input');
                 if (pageInputEl) pageInputEl.max = totalPages;
-                
-                safeSetText('loading-text', 'Initializing Mobile Layout...');
-                await initBook();
-                buildDrawerGrid();
 
-                // Extract and load structured outline chapters
-                safeSetText('loading-text', 'Extracting Bookmarks & Chapters...');
-                await initChaptersOutline();
-                
-                const loadingScreenEl = document.getElementById('loading-screen');
-                if (loadingScreenEl) loadingScreenEl.style.display = 'none';
-                
-                // Auto-Restore Last Read Page Location
+                // Auto-Restore Last Read Page Location immediately
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
                     const savedIdx = parseInt(saved, 10);
@@ -1563,15 +1586,41 @@ ${safePdfWorker}
                     }
                 }
                 
+                // Fast path: setup book structure and event handlers
+                await initBook();
                 setupEvents();
-            initTtsVoices();
-            prepareTtsForCurrentPage();
-                // Ensure correct initial page state is loaded and rendered
-                goToPage(currentPageIndex);
+                buildDrawerGrid();
+
+                // 1. INSTANT FIRST PAGE RENDER
+                // Trigger render for the initial active page immediately
+                await goToPage(currentPageIndex);
+
+                // Hide loading overlay right after Page 1 / initial page draws!
+                clearTimeout(initSafetyTimeout);
+                const loadingScreenEl = document.getElementById('loading-screen');
+                if (loadingScreenEl) {
+                    loadingScreenEl.style.opacity = '0';
+                    loadingScreenEl.style.transition = 'opacity 0.25s ease-out';
+                    setTimeout(() => { loadingScreenEl.style.display = 'none'; }, 250);
+                }
+
+                // 2. BACKGROUND ASYNCHRONOUS PROCESSING (DEFERRED TASKS)
+                const runBackgroundTasks = () => {
+                    initChaptersOutline().catch(err => console.warn("Background outline extraction error:", err));
+                    initTtsVoices();
+                    prepareTtsForCurrentPage().catch(err => console.warn("Background TTS prep error:", err));
+                };
+
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(() => runBackgroundTasks(), { timeout: 2000 });
+                } else {
+                    setTimeout(runBackgroundTasks, 50);
+                }
 
             } catch (err) {
+                clearTimeout(initSafetyTimeout);
                 console.error("PDF Initialization Error:", err);
-                safeSetText('loading-text', 'Error loading document');
+                safeSetText('loading-text', 'Error loading document: ' + (err.message || err));
             }
         });
 
@@ -2070,19 +2119,22 @@ ${safePdfWorker}
         }
 
         function lazyRender(currentIdx) {
-            // ONLY keep currentIdx and adjacent pages (N-1 and N+1) inside the viewport
-            const activePages = new Set([currentIdx]);
-            if (currentIdx > 0) activePages.add(currentIdx - 1);
-            if (currentIdx < totalPages - 1) activePages.add(currentIdx + 1);
+            // VIEWPORT MEMORY VIRTUALIZATION: Keep Current Page ± 2 (Current Page ± 2 Buffer)
+            const activePages = new Set();
+            for (let offset = -2; offset <= 2; offset++) {
+                const targetIdx = currentIdx + offset;
+                if (targetIdx >= 0 && targetIdx < totalPages) {
+                    activePages.add(targetIdx);
+                }
+            }
             
-            // AUTOMATICALLY purge off-screen canvas contexts and completely release memory
+            // Purge off-screen canvas contexts outside Current Page ± 2 to free VRAM/memory
             for (let i = 0; i < totalPages; i++) {
                 if (!activePages.has(i)) {
                     if (pdfPages[i] === 'done') {
                         pdfPages[i] = null; // Eligible to re-render
                         const el = document.getElementById('page-' + i);
                         if (el) {
-                            // Erase heavy canvas element entirely to reclaim memory/GPU buffer immediately
                             el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
                         }
                     } else if (pdfPages[i] === 'rendering') {
@@ -2099,26 +2151,74 @@ ${safePdfWorker}
                 }
             }
 
-            // Render current, N-1, and N+1 pages if they are not loaded yet
+            // Pre-render pages within the Current Page ± 2 buffer
             activePages.forEach(p => {
                 if (!pdfPages[p]) renderPage(p);
             });
+        }
+
+        let loadedThumbnails = {};
+        let thumbObserver = null;
+
+        async function renderThumbnail(pageIdx, thumbEl) {
+            if (loadedThumbnails[pageIdx] || !pdfDoc) return;
+            loadedThumbnails[pageIdx] = true;
+            try {
+                const page = await pdfDoc.getPage(pageIdx + 1);
+                const viewport = page.getViewport({ scale: 0.2 });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.floor(viewport.width);
+                canvas.height = Math.floor(viewport.height);
+                canvas.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
+                const ctx = canvas.getContext('2d', { alpha: false });
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                if (thumbEl) {
+                    thumbEl.innerHTML = '';
+                    thumbEl.appendChild(canvas);
+                    const label = document.createElement('span');
+                    label.style.cssText = 'font-size:10px;font-weight:700;margin-top:2px;color:#64748B;';
+                    label.textContent = 'P. ' + (pageIdx + 1);
+                    thumbEl.appendChild(label);
+                }
+            } catch (e) {
+                console.warn("Thumbnail render failed for page " + (pageIdx + 1), e);
+            }
         }
 
         function buildDrawerGrid() {
             const grid = document.getElementById('drawer-grid');
             if (!grid) return;
             grid.innerHTML = '';
+
+            if (thumbObserver) {
+                try { thumbObserver.disconnect(); } catch(e) {}
+            }
+
+            thumbObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const pageIdx = parseInt(entry.target.dataset.page, 10);
+                        if (!isNaN(pageIdx)) {
+                            renderThumbnail(pageIdx, entry.target);
+                        }
+                    }
+                });
+            }, { root: document.getElementById('thumbs-drawer'), rootMargin: '50px' });
+
             for (let i = 0; i < totalPages; i++) {
                 const item = document.createElement('div');
-                item.className = 'thumb-item' + (i === 0 ? ' active' : '');
+                item.className = 'thumb-item' + (i === currentPageIndex ? ' active' : '');
                 item.id = 'thumb-' + i;
+                item.dataset.page = i;
                 item.innerHTML = '<span>Page ' + (i + 1) + '</span>';
                 item.addEventListener('click', () => {
                     goToPage(i);
                     toggleDrawer(false);
                 });
                 grid.appendChild(item);
+                thumbObserver.observe(item);
             }
         }
 
@@ -2132,12 +2232,13 @@ ${safePdfWorker}
         function toggleDrawer(open) {
             const drawer = document.getElementById('thumbs-drawer');
             if (!drawer) return;
-            if (open === undefined) drawer.classList.toggle('open');
-            else if (open) {
+            const willOpen = open === undefined ? !drawer.classList.contains('open') : open;
+            if (willOpen) {
                 drawer.classList.add('open');
                 toggleChaptersDrawer(false); // Mutual exclusion
+            } else {
+                drawer.classList.remove('open');
             }
-            else drawer.classList.remove('open');
         }
 
         function toggleChaptersDrawer(open) {
