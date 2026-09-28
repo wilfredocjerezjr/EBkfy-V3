@@ -1420,6 +1420,162 @@ ${safePdfWorker}
             }
         }
 
+        function formatQuestionnaireText(text) {
+            if (!text || typeof text !== 'string') return text || '';
+
+            try {
+                let result = text;
+
+                // 1. Format option header keywords (e.g. "Options:", "Choices:", "Select:")
+                result = result.replace(/\\b(Options|Choices|Select|Answers?)\\s*:\\s*(?=(?:\\([A-Za-z0-9]+\\)|[A-Za-z0-9][\\.\\)]))/gi, '$1:\\n');
+
+                // Guardrail: Non-choice preceding words that indicate prose/scientific terms rather than choice A/B/C/etc.
+                const nonChoicePrefixes = /^(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block)$/i;
+
+                // Helper to check if a choice marker candidate at matchIndex is preceded by a non-choice word
+                const isPrecededByNonChoiceWord = (fullText, matchIndex) => {
+                    const leadingText = fullText.substring(Math.max(0, matchIndex - 35), matchIndex);
+                    const lastWordMatch = leadingText.match(/([a-zA-Z0-9]+)\\s*$/);
+                    if (lastWordMatch && nonChoicePrefixes.test(lastWordMatch[1])) {
+                        return true;
+                    }
+                    return false;
+                };
+
+                const choiceStyles = [
+                    // Uppercase dot: A. B. C.
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(A\\.)\\s+/g,
+                        nextMarkers: ['B.', 'C.', 'D.', 'E.', 'F.']
+                    },
+                    // Uppercase paren: A) B) C)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(A\\))\\s+/g,
+                        nextMarkers: ['B)', 'C)', 'D)', 'E)', 'F)']
+                    },
+                    // Enclosed uppercase paren: (A) (B) (C)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(A\\))\\s+/g,
+                        nextMarkers: ['(B)', '(C)', '(D)', '(E)', '(F)']
+                    },
+                    // Lowercase dot: a. b. c.
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(a\\.)\\s+/g,
+                        nextMarkers: ['b.', 'c.', 'd.', 'e.', 'f.']
+                    },
+                    // Lowercase paren: a) b) c)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(a\\))\\s+/g,
+                        nextMarkers: ['b)', 'c)', 'd)', 'e)', 'f)']
+                    },
+                    // Enclosed lowercase paren: (a) (b) (c)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(a\\))\\s+/g,
+                        nextMarkers: ['(b)', '(c)', '(d)', '(e)', '(f)']
+                    },
+                    // Number dot: 1. 2. 3.
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(1\\.)\\s+/g,
+                        nextMarkers: ['2.', '3.', '4.', '5.', '6.']
+                    },
+                    // Number paren: 1) 2) 3)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(1\\))\\s+/g,
+                        nextMarkers: ['2)', '3)', '4)', '5)', '6)']
+                    },
+                    // Enclosed number paren: (1) (2) (3)
+                    {
+                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(1\\))\\s+/g,
+                        nextMarkers: ['(2)', '(3)', '(4)', '(5)', '(6)']
+                    }
+                ];
+
+                const escapeReg = s => s.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&');
+
+                for (const style of choiceStyles) {
+                    let match;
+                    style.startPattern.lastIndex = 0;
+
+                    while ((match = style.startPattern.exec(result)) !== null) {
+                        const startMarker = match[1];
+                        const matchIdx = match.index + (match[0].length - startMarker.length - match[0].match(/\\s+$/)[0].length);
+
+                        if (isPrecededByNonChoiceWord(result, matchIdx)) {
+                            continue;
+                        }
+
+                        const searchSubstr = result.substring(matchIdx);
+                        const firstNext = style.nextMarkers[0];
+                        const secondNext = style.nextMarkers[1];
+
+                        const posFirst = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(firstNext) + '\\\\s+'));
+                        const posSecond = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(secondNext) + '\\\\s+'));
+
+                        if (posFirst > 0 && posSecond > posFirst) {
+                            const foundMarkers = [startMarker];
+                            for (const nextM of style.nextMarkers) {
+                                const mPos = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(nextM) + '\\\\s+'));
+                                if (mPos > 0) {
+                                    foundMarkers.push(nextM);
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            if (foundMarkers.length >= 3) {
+                                let block = searchSubstr;
+                                const lastMarker = foundMarkers[foundMarkers.length - 1];
+                                const lastMReg = new RegExp('(?:^|\\\\s)' + escapeReg(lastMarker) + '\\\\s+');
+                                const lastMOffset = block.search(lastMReg);
+
+                                let seqEnd = block.length;
+                                const rest = block.substring(lastMOffset);
+                                const endMatch = rest.match(/(\\n\\n|\\n\\s*\\d+[\\.\\)]|\\n\\s*[A-Z][\\.\\)]|$)/);
+                                if (endMatch && endMatch.index > 0) {
+                                    seqEnd = lastMOffset + endMatch.index;
+                                }
+
+                                let choiceBlock = block.substring(0, seqEnd);
+
+                                for (let i = 1; i < foundMarkers.length; i++) {
+                                    const m = foundMarkers[i];
+                                    const reg = new RegExp('(\\\\s+)(' + escapeReg(m) + ')(\\\\s+)', 'g');
+                                    choiceBlock = choiceBlock.replace(reg, '\\n$2$3');
+                                }
+
+                                const charBefore = matchIdx > 0 ? result[matchIdx - 1] : '\\n';
+                                let prefixInsert = '';
+                                if (charBefore !== '\\n' && charBefore !== ' ') {
+                                    prefixInsert = '\\n';
+                                } else if (charBefore === ' ') {
+                                    if (matchIdx > 1 && result[matchIdx - 2] !== '\\n') {
+                                        prefixInsert = '\\n';
+                                    }
+                                }
+
+                                const beforeBlock = result.substring(0, matchIdx);
+                                const afterBlock = result.substring(matchIdx + seqEnd);
+
+                                let cleanBefore = beforeBlock;
+                                if (prefixInsert === '\\n') {
+                                    cleanBefore = cleanBefore.replace(/[ \t]+$/, '');
+                                }
+
+                                result = cleanBefore + prefixInsert + choiceBlock + afterBlock;
+                                style.startPattern.lastIndex = (cleanBefore + prefixInsert + choiceBlock).length;
+                            }
+                        }
+                    }
+                }
+
+                return result.replace(/\\n{3,}/g, '\\n\\n').trim();
+
+            } catch (err) {
+                console.warn('formatQuestionnaireText error:', err);
+                return text;
+            }
+        }
+
         function sanitizeText(rawText) {
             if (!rawText) return '';
             return rawText
@@ -1446,7 +1602,7 @@ ${safePdfWorker}
                     rawText += item.str;
                     lastY = item.transform[5];
                 }
-                const cleaned = sanitizeText(rawText);
+                const cleaned = formatQuestionnaireText(sanitizeText(rawText));
                 extractedTextPages[pageIdx] = cleaned;
                 return cleaned;
             } catch (err) {
@@ -1489,7 +1645,8 @@ ${safePdfWorker}
                     if (!text) {
                         bodyEl.innerHTML = '<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(No extractable text on this page)</p>';
                     } else {
-                        const paragraphs = text.split(/\\n+/);
+                        const formattedText = formatQuestionnaireText(text);
+                        const paragraphs = formattedText.split(/\\n+/);
                         paragraphs.forEach((pText, pIdx) => {
                             const cleanP = sanitizeText(pText);
                             if (cleanP) {
