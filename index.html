@@ -1439,8 +1439,8 @@ ${safePdfWorker}
                 let lastY = null;
                 for (const item of textContent.items) {
                     if (lastY !== null && Math.abs(item.transform[5] - lastY) > 8) {
-                        rawText += '\n';
-                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\n')) {
+                        rawText += '\\n';
+                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\\n')) {
                         rawText += ' ';
                     }
                     rawText += item.str;
@@ -1489,7 +1489,7 @@ ${safePdfWorker}
                     if (!text) {
                         bodyEl.innerHTML = '<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(No extractable text on this page)</p>';
                     } else {
-                        const paragraphs = text.split(/\n+/);
+                        const paragraphs = text.split(/\\n+/);
                         paragraphs.forEach((pText, pIdx) => {
                             const cleanP = sanitizeText(pText);
                             if (cleanP) {
@@ -1534,17 +1534,21 @@ ${safePdfWorker}
             if (el) el.innerText = text;
         }
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        async function initApp() {
             safeSetText('loading-text', 'Decoding PDF Stream...');
-            
-            // Inline worker initialization safely via Data-URI
+            // Yield execution to allow browser UI thread to render loading screen text update
+            await new Promise(r => setTimeout(r, 20));
+
+            // Inline worker initialization safely via Blob URL with fallback handling
             try {
                 const workerEl = document.getElementById('pdf-worker-code');
-                if (workerEl) {
-                    const workerBase64 = btoa(unescape(encodeURIComponent(workerEl.textContent)));
-                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'data:text/javascript;base64,' + workerBase64;
+                if (workerEl && workerEl.textContent) {
+                    const blob = new Blob([workerEl.textContent], { type: 'text/javascript' });
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
                 }
-            } catch(e) { console.warn("Worker setup warning:", e); }
+            } catch(e) {
+                console.warn("Worker setup warning (falling back to main thread worker):", e);
+            }
 
             // 8-second safety fallback timer for initialization
             const initSafetyTimeout = setTimeout(() => {
@@ -1622,7 +1626,13 @@ ${safePdfWorker}
                 console.error("PDF Initialization Error:", err);
                 safeSetText('loading-text', 'Error loading document: ' + (err.message || err));
             }
-        });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
 
         async function resolveDest(dest) {
             if (!dest) return null;
