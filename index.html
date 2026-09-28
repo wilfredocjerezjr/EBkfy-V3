@@ -1021,13 +1021,21 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
             }
             .page-wrapper.active-mobile-page {
                 display: flex !important;
-                transform: rotateY(0deg) scale(1);
+                transform: rotateY(0deg) scale(1) translateZ(0);
                 opacity: 1;
                 z-index: 5;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
             }
             .page-wrapper.flip-left {
                 display: flex !important;
-                transform: rotateY(-180deg) scale(0.9);
+                transform: rotateY(-180deg) scale(0.92) translateZ(0);
+                opacity: 0;
+                z-index: 10;
+                pointer-events: none;
+            }
+            .page-wrapper.flip-right {
+                display: flex !important;
+                transform: rotateY(180deg) scale(0.92) translateZ(0);
                 opacity: 0;
                 z-index: 10;
                 pointer-events: none;
@@ -1259,8 +1267,11 @@ ${safePdfWorker}
                 ttsSentences = ["No text available on page " + (currentPageIndex + 1)];
             } else {
                 // Split text into sentences for fine-grained highlighting
-                ttsSentences = text.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [text];
-                ttsSentences = ttsSentences.map(s => sanitizeText(s)).filter(Boolean);
+                ttsSentences = text.match(new RegExp("[^.!?]+[.!?]+(\\\\s+|$)|[^.!?]+$", "g")) || [text];
+                ttsSentences = ttsSentences.map(s => renderMathAndUnits(sanitizeText(s))).filter(Boolean);
+            }
+            if (!ttsSentences.length) {
+                ttsSentences = ["Page " + (currentPageIndex + 1)];
             }
             ttsCurrentSentenceIdx = 0;
             updateAudioInfoDisplay();
@@ -1297,16 +1308,17 @@ ${safePdfWorker}
         }
 
         function speakCurrentTtsSentence() {
-            if (!('speechSynthesis' in window)) return;
+            if (!('speechSynthesis' in window) || !ttsPlaying) return;
             window.speechSynthesis.cancel();
 
+            if (!ttsSentences || !ttsSentences.length) {
+                ttsSentences = ["Page " + (currentPageIndex + 1)];
+            }
+
             if (ttsCurrentSentenceIdx >= ttsSentences.length) {
-                // Advance to next page if available
+                // Advance sequentially to next page if available
                 if (currentPageIndex < totalPages - 1) {
-                    goToPage(currentPageIndex + 1).then(async () => {
-                        await prepareTtsForCurrentPage();
-                        speakCurrentTtsSentence();
-                    });
+                    goToPage(currentPageIndex + 1);
                 } else {
                     stopTts();
                 }
@@ -1332,28 +1344,36 @@ ${safePdfWorker}
                 console.warn('TTS Speech Synthesis error:', e);
                 if (ttsPlaying) {
                     ttsCurrentSentenceIdx++;
-                    speakCurrentTtsSentence();
+                    setTimeout(() => speakCurrentTtsSentence(), 200);
                 }
             };
 
             window.speechSynthesis.speak(ttsUtterance);
         }
 
-        function playTts() {
+        async function playTts() {
             ttsPlaying = true;
             const playBtn = document.getElementById('btn-audio-play');
             if (playBtn) playBtn.textContent = '||';
-            if (!ttsSentences.length) {
-                prepareTtsForCurrentPage().then(() => speakCurrentTtsSentence());
-            } else {
-                speakCurrentTtsSentence();
+
+            // Always start reading from top of current visible page
+            await prepareTtsForCurrentPage();
+
+            if (isReaderMode) {
+                const activeCard = document.getElementById('reader-card-' + currentPageIndex);
+                if (activeCard) {
+                    activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                }
             }
+
+            speakCurrentTtsSentence();
         }
 
         function pauseTts() {
             ttsPlaying = false;
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.pause();
+                window.speechSynthesis.cancel();
             }
             const playBtn = document.getElementById('btn-audio-play');
             if (playBtn) playBtn.textContent = '▷';
@@ -1426,150 +1446,27 @@ ${safePdfWorker}
             try {
                 let result = text;
 
-                // 1. Format option header keywords (e.g. "Options:", "Choices:", "Select:")
-                result = result.replace(/\\b(Options|Choices|Select|Answers?)\\s*:\\s*(?=(?:\\([A-Za-z0-9]+\\)|[A-Za-z0-9][\\.\\)]))/gi, '$1:\\n');
+                // 1. Format option headers (Options:, Choices:, Select:, Answers:)
+                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "Options:\\n");
 
-                // Guardrail: Non-choice preceding words that indicate prose/scientific terms rather than choice A/B/C/etc.
-                const nonChoicePrefixes = /^(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block)$/i;
+                const nonChoicePrefixes = new RegExp("\\\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block)\\\\s+$", "i");
 
-                // Helper to check if a choice marker candidate at matchIndex is preceded by a non-choice word
-                const isPrecededByNonChoiceWord = (fullText, matchIndex) => {
-                    const leadingText = fullText.substring(Math.max(0, matchIndex - 35), matchIndex);
-                    const lastWordMatch = leadingText.match(/([a-zA-Z0-9]+)\\s*$/);
-                    if (lastWordMatch && nonChoicePrefixes.test(lastWordMatch[1])) {
-                        return true;
+                // Separate choice markers (A., B., C., D., E., F., A), B), C), (A), (B), 1., 2., 3., 4.)
+                result = result.replace(new RegExp("(\\\\S)\\\\s+([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "g"), (match, prev, marker, offset, fullStr) => {
+                    const precedingText = fullStr.substring(Math.max(0, offset - 30), offset + prev.length);
+                    if (nonChoicePrefixes.test(precedingText)) {
+                        return match;
                     }
-                    return false;
-                };
+                    return prev + "\\n" + marker + " ";
+                });
 
-                const choiceStyles = [
-                    // Uppercase dot: A. B. C.
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(A\\.)\\s+/g,
-                        nextMarkers: ['B.', 'C.', 'D.', 'E.', 'F.']
-                    },
-                    // Uppercase paren: A) B) C)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(A\\))\\s+/g,
-                        nextMarkers: ['B)', 'C)', 'D)', 'E)', 'F)']
-                    },
-                    // Enclosed uppercase paren: (A) (B) (C)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(A\\))\\s+/g,
-                        nextMarkers: ['(B)', '(C)', '(D)', '(E)', '(F)']
-                    },
-                    // Lowercase dot: a. b. c.
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(a\\.)\\s+/g,
-                        nextMarkers: ['b.', 'c.', 'd.', 'e.', 'f.']
-                    },
-                    // Lowercase paren: a) b) c)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(a\\))\\s+/g,
-                        nextMarkers: ['b)', 'c)', 'd)', 'e)', 'f)']
-                    },
-                    // Enclosed lowercase paren: (a) (b) (c)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(a\\))\\s+/g,
-                        nextMarkers: ['(b)', '(c)', '(d)', '(e)', '(f)']
-                    },
-                    // Number dot: 1. 2. 3.
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(1\\.)\\s+/g,
-                        nextMarkers: ['2.', '3.', '4.', '5.', '6.']
-                    },
-                    // Number paren: 1) 2) 3)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(1\\))\\s+/g,
-                        nextMarkers: ['2)', '3)', '4)', '5)', '6)']
-                    },
-                    // Enclosed number paren: (1) (2) (3)
-                    {
-                        startPattern: /(?:^|[\\s\\?:\\.\\n\\(\\[])(\\(1\\))\\s+/g,
-                        nextMarkers: ['(2)', '(3)', '(4)', '(5)', '(6)']
-                    }
-                ];
+                // Ensure Options: header is followed by choice A on its own line
+                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\\n$2 ");
 
-                const escapeReg = s => s.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&');
+                // Format Rationale / Explanation / Note / Discussion headers
+                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion)\\\\s*:", "gi"), "$1\\n\\n$2:");
 
-                for (const style of choiceStyles) {
-                    let match;
-                    style.startPattern.lastIndex = 0;
-
-                    while ((match = style.startPattern.exec(result)) !== null) {
-                        const startMarker = match[1];
-                        const matchIdx = match.index + (match[0].length - startMarker.length - match[0].match(/\\s+$/)[0].length);
-
-                        if (isPrecededByNonChoiceWord(result, matchIdx)) {
-                            continue;
-                        }
-
-                        const searchSubstr = result.substring(matchIdx);
-                        const firstNext = style.nextMarkers[0];
-                        const secondNext = style.nextMarkers[1];
-
-                        const posFirst = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(firstNext) + '\\\\s+'));
-                        const posSecond = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(secondNext) + '\\\\s+'));
-
-                        if (posFirst > 0 && posSecond > posFirst) {
-                            const foundMarkers = [startMarker];
-                            for (const nextM of style.nextMarkers) {
-                                const mPos = searchSubstr.search(new RegExp('(?:^|\\\\s)' + escapeReg(nextM) + '\\\\s+'));
-                                if (mPos > 0) {
-                                    foundMarkers.push(nextM);
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            if (foundMarkers.length >= 3) {
-                                let block = searchSubstr;
-                                const lastMarker = foundMarkers[foundMarkers.length - 1];
-                                const lastMReg = new RegExp('(?:^|\\\\s)' + escapeReg(lastMarker) + '\\\\s+');
-                                const lastMOffset = block.search(lastMReg);
-
-                                let seqEnd = block.length;
-                                const rest = block.substring(lastMOffset);
-                                const endMatch = rest.match(/(\\n\\n|\\n\\s*\\d+[\\.\\)]|\\n\\s*[A-Z][\\.\\)]|$)/);
-                                if (endMatch && endMatch.index > 0) {
-                                    seqEnd = lastMOffset + endMatch.index;
-                                }
-
-                                let choiceBlock = block.substring(0, seqEnd);
-
-                                for (let i = 1; i < foundMarkers.length; i++) {
-                                    const m = foundMarkers[i];
-                                    const reg = new RegExp('(\\\\s+)(' + escapeReg(m) + ')(\\\\s+)', 'g');
-                                    choiceBlock = choiceBlock.replace(reg, '\\n$2$3');
-                                }
-
-                                const charBefore = matchIdx > 0 ? result[matchIdx - 1] : '\\n';
-                                let prefixInsert = '';
-                                if (charBefore !== '\\n' && charBefore !== ' ') {
-                                    prefixInsert = '\\n';
-                                } else if (charBefore === ' ') {
-                                    if (matchIdx > 1 && result[matchIdx - 2] !== '\\n') {
-                                        prefixInsert = '\\n';
-                                    }
-                                }
-
-                                const beforeBlock = result.substring(0, matchIdx);
-                                const afterBlock = result.substring(matchIdx + seqEnd);
-
-                                let cleanBefore = beforeBlock;
-                                if (prefixInsert === '\\n') {
-                                    cleanBefore = cleanBefore.replace(/[ \t]+$/, '');
-                                }
-
-                                result = cleanBefore + prefixInsert + choiceBlock + afterBlock;
-                                style.startPattern.lastIndex = (cleanBefore + prefixInsert + choiceBlock).length;
-                            }
-                        }
-                    }
-                }
-
-                return result.replace(/\\n{3,}/g, '\\n\\n').trim();
-
+                return result.replace(new RegExp("\\\\n{3,}", "g"), "\\n\\n").trim();
             } catch (err) {
                 console.warn('formatQuestionnaireText error:', err);
                 return text;
@@ -1579,9 +1476,48 @@ ${safePdfWorker}
         function sanitizeText(rawText) {
             if (!rawText) return '';
             return rawText
-                .replace(/\s+/g, ' ')
-                .replace(/\s+([.,!?:;])/g, '$1')
+                .replace(new RegExp("\\\\s+", "g"), " ")
+                .replace(new RegExp("\\\\s+([.,!?:;])", "g"), "$1")
                 .trim();
+        }
+
+        function renderMathAndUnits(text) {
+            if (!text || typeof text !== 'string') return text || '';
+            let result = text;
+
+            // 1. Replace LaTeX \text{...} -> ...
+            result = result.replace(new RegExp("\\\\\\\\text\\\\s*\\\\{([^}]+)\\\\}", "g"), "$1");
+
+            // 2. Replace LaTeX \frac{a}{b} -> (a / b)
+            let limit = 0;
+            while (new RegExp("\\\\\\\\frac\\\\s*\\\\{[^}]+\\\\}\\\\s*\\\\{[^}]+\\\\}").test(result) && limit < 10) {
+                result = result.replace(new RegExp("\\\\\\\\frac\\\\s*\\\\{([^}]+)\\\\}\\\\s*\\\\{([^}]+)\\\\}", "g"), "($1 / $2)");
+                limit++;
+            }
+
+            // 3. Replace math symbols
+            result = result.replace(new RegExp("\\\\\\\\times", "g"), "×");
+            result = result.replace(new RegExp("\\\\\\\\div", "g"), "÷");
+            result = result.replace(new RegExp("\\\\\\\\cdot", "g"), "·");
+            result = result.replace(new RegExp("\\\\\\\\pm", "g"), "±");
+            result = result.replace(new RegExp("\\\\\\\\le(q)?\\\\b", "g"), "≤");
+            result = result.replace(new RegExp("\\\\\\\\ge(q)?\\\\b", "g"), "≥");
+            result = result.replace(new RegExp("\\\\\\\\neq\\\\b", "g"), "≠");
+            result = result.replace(new RegExp("\\\\\\\\approx\\\\b", "g"), "≈");
+            result = result.replace(new RegExp("\\\\\\\\mu\\\\s*g\\\\b|\\\\\\\\mu\\\\s*\\\\\\\\text\\\\s*\\\\{g\\\\}|\\\\\\\\mu", "g"), "µg");
+            result = result.replace(new RegExp("\\\\\\\\alpha\\\\b", "g"), "α");
+            result = result.replace(new RegExp("\\\\\\\\beta\\\\b", "g"), "β");
+            result = result.replace(new RegExp("\\\\\\\\square\\\\b", "g"), "[ ]");
+
+            // Clean up percent escaping: \% -> %
+            result = result.replace(new RegExp("\\\\\\\\%", "g"), "%");
+
+            // Clean up dollar sign math delimiters: $ ... $ or $$ ... $$
+            result = result.replace(new RegExp("\\\\$\\\\s*\\\\$", "g"), "");
+            result = result.replace(new RegExp("\\\\$\\\\$\\\\s*([^\\\\$]+)\\\\$\\\\$", "g"), "$1");
+            result = result.replace(new RegExp("\\\\$([^\\\\$]+)\\\\$", "g"), "$1");
+
+            return result.replace(new RegExp("\\\\s+", "g"), " ").trim();
         }
 
         async function getPageSanitizedText(pageIdx) {
@@ -1602,7 +1538,7 @@ ${safePdfWorker}
                     rawText += item.str;
                     lastY = item.transform[5];
                 }
-                const cleaned = formatQuestionnaireText(sanitizeText(rawText));
+                const cleaned = formatQuestionnaireText(renderMathAndUnits(sanitizeText(rawText)));
                 extractedTextPages[pageIdx] = cleaned;
                 return cleaned;
             } catch (err) {
@@ -1903,42 +1839,36 @@ ${safePdfWorker}
             const oldPage = document.getElementById('page-' + oldIdx);
             const newPage = document.getElementById('page-' + newIdx);
             if (!oldPage || !newPage) {
-                // If elements are missing, immediately set active class with zero transitions
                 document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
                     if (idx === newIdx) el.classList.add('active-mobile-page');
-                    else el.classList.remove('active-mobile-page', 'flip-left');
+                    else el.classList.remove('active-mobile-page', 'flip-left', 'flip-right');
                 });
                 return;
             }
 
-            // Remove any leftover animation classes from other pages
             document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
                 if (idx !== oldIdx && idx !== newIdx) {
-                    el.classList.remove('active-mobile-page', 'flip-left');
+                    el.classList.remove('active-mobile-page', 'flip-left', 'flip-right');
                 }
             });
 
             if (direction === 'next') {
-                // Next page is placed directly below, old page flips left
                 oldPage.classList.add('flip-left');
                 oldPage.classList.remove('active-mobile-page');
                 newPage.classList.add('active-mobile-page');
             } else {
-                // Previous page starts flipped left, then rotates smoothly back to center
                 oldPage.classList.remove('active-mobile-page');
-                newPage.classList.add('flip-left');
+                newPage.classList.add('flip-right');
                 newPage.classList.add('active-mobile-page');
 
-                // Force layout reflow
-                newPage.offsetHeight;
-                newPage.classList.remove('flip-left');
+                newPage.offsetHeight; // Force layout reflow
+                newPage.classList.remove('flip-right');
             }
 
             setTimeout(() => {
-                oldPage.classList.remove('flip-left');
                 document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
                     if (idx === newIdx) el.classList.add('active-mobile-page');
-                    else el.classList.remove('active-mobile-page', 'flip-left');
+                    else el.classList.remove('active-mobile-page', 'flip-left', 'flip-right');
                 });
             }, 600);
         }
@@ -1954,6 +1884,8 @@ ${safePdfWorker}
             updateDrawerActive(p);
             updateChaptersDrawerActive(p);
             lazyRender(p);
+
+            await prepareTtsForCurrentPage();
 
             if (isMobileMode) {
                 if (oldIdx !== p) {
@@ -1972,6 +1904,17 @@ ${safePdfWorker}
                 if (pageFlip && pageFlip.getCurrentPageIndex() !== p) {
                     pageFlip.flip(p);
                 }
+            }
+
+            if (isReaderMode) {
+                const activeCard = document.getElementById('reader-card-' + p);
+                if (activeCard) {
+                    activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                }
+            }
+
+            if (ttsPlaying) {
+                speakCurrentTtsSentence();
             }
         }
 
@@ -2612,11 +2555,11 @@ ${safePdfWorker}
                     stage.style.transform = 'none';
                     stage.style.cursor = 'default';
                 } else {
-                    const maxPx = (vp.clientWidth * (zoomLevel - 1)) / 1.5;
-                    const maxPy = (vp.clientHeight * (zoomLevel - 1)) / 1.5;
+                    const maxPx = (vp.clientWidth * (zoomLevel - 1)) / 2;
+                    const maxPy = (vp.clientHeight * (zoomLevel - 1)) / 2;
                     panX = Math.max(-maxPx, Math.min(maxPx, panX));
                     panY = Math.max(-maxPy, Math.min(maxPy, panY));
-                    stage.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoomLevel + ')';
+                    stage.style.transform = 'translate3d(' + panX + 'px, ' + panY + 'px, 0px) scale(' + zoomLevel + ')';
                     stage.style.cursor = 'grab';
                 }
             }
@@ -2640,9 +2583,20 @@ ${safePdfWorker}
                     touchStartY = e.touches[0].clientY;
                     const now = Date.now();
                     if (now - lastTapTime < 300) {
-                        zoomLevel = zoomLevel > 1.05 ? 1.0 : 2.0;
+                        e.preventDefault();
+                        if (zoomLevel > 1.05) {
+                            zoomLevel = 1.0;
+                        } else {
+                            zoomLevel = 2.0;
+                            const rect = vp.getBoundingClientRect();
+                            const tapX = e.touches[0].clientX - rect.left - rect.width / 2;
+                            const tapY = e.touches[0].clientY - rect.top - rect.height / 2;
+                            panX = -tapX * 0.5;
+                            panY = -tapY * 0.5;
+                        }
                         updateTransform();
-                        lastTapTime = 0; return;
+                        lastTapTime = 0;
+                        return;
                     }
                     lastTapTime = now;
                     if (zoomLevel > 1.01) {
