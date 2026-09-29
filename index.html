@@ -1237,6 +1237,19 @@ ${safePdfWorker}
         let ttsUtterance = null;
         let ttsVoice = null;
         let ttsSpeed = 1.0;
+        let currentSpeechSessionId = 0;
+
+        function cancelTtsSpeech() {
+            currentSpeechSessionId++;
+            if (ttsUtterance) {
+                ttsUtterance.onend = null;
+                ttsUtterance.onerror = null;
+                ttsUtterance = null;
+            }
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+        }
 
         function initTtsVoices() {
             if (!('speechSynthesis' in window)) return;
@@ -1309,7 +1322,7 @@ ${safePdfWorker}
 
         function speakCurrentTtsSentence() {
             if (!('speechSynthesis' in window) || !ttsPlaying) return;
-            window.speechSynthesis.cancel();
+            cancelTtsSpeech();
 
             if (!ttsSentences || !ttsSentences.length) {
                 ttsSentences = ["Page " + (currentPageIndex + 1)];
@@ -1325,6 +1338,7 @@ ${safePdfWorker}
                 return;
             }
 
+            const sessionId = ++currentSpeechSessionId;
             const sentence = ttsSentences[ttsCurrentSentenceIdx];
             updateAudioInfoDisplay();
             highlightTtsSentence(ttsCurrentSentenceIdx);
@@ -1334,17 +1348,22 @@ ${safePdfWorker}
             ttsUtterance.rate = ttsSpeed;
 
             ttsUtterance.onend = () => {
-                if (ttsPlaying) {
+                if (sessionId === currentSpeechSessionId && ttsPlaying) {
                     ttsCurrentSentenceIdx++;
                     speakCurrentTtsSentence();
                 }
             };
 
             ttsUtterance.onerror = (e) => {
+                if (sessionId !== currentSpeechSessionId) return;
                 console.warn('TTS Speech Synthesis error:', e);
                 if (ttsPlaying) {
                     ttsCurrentSentenceIdx++;
-                    setTimeout(() => speakCurrentTtsSentence(), 200);
+                    setTimeout(() => {
+                        if (sessionId === currentSpeechSessionId && ttsPlaying) {
+                            speakCurrentTtsSentence();
+                        }
+                    }, 200);
                 }
             };
 
@@ -1358,6 +1377,7 @@ ${safePdfWorker}
 
             // Always start reading from top of current visible page
             await prepareTtsForCurrentPage();
+            ttsCurrentSentenceIdx = 0;
 
             if (isReaderMode) {
                 const activeCard = document.getElementById('reader-card-' + currentPageIndex);
@@ -1371,19 +1391,14 @@ ${safePdfWorker}
 
         function pauseTts() {
             ttsPlaying = false;
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.pause();
-                window.speechSynthesis.cancel();
-            }
+            cancelTtsSpeech();
             const playBtn = document.getElementById('btn-audio-play');
             if (playBtn) playBtn.textContent = '▷';
         }
 
         function stopTts() {
             ttsPlaying = false;
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-            }
+            cancelTtsSpeech();
             document.querySelectorAll('.tts-highlight').forEach(el => el.classList.remove('tts-highlight'));
             const playBtn = document.getElementById('btn-audio-play');
             if (playBtn) playBtn.textContent = '▷';
@@ -1441,15 +1456,15 @@ ${safePdfWorker}
         }
 
         function formatQuestionnaireText(text) {
-            if (!text || typeof text !== 'string') return text || '';
+            if (!text || typeof text !== "string") return text || "";
 
             try {
                 let result = text;
 
                 // 1. Format option headers (Options:, Choices:, Select:, Answers:)
-                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "Options:\\n");
+                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "\nOptions:\n");
 
-                const nonChoicePrefixes = new RegExp("\\\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block)\\\\s+$", "i");
+                const nonChoicePrefixes = new RegExp("\\\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\\\\s+$", "i");
 
                 // Separate choice markers (A., B., C., D., E., F., A), B), C), (A), (B), 1., 2., 3., 4.)
                 result = result.replace(new RegExp("(\\\\S)\\\\s+([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "g"), (match, prev, marker, offset, fullStr) => {
@@ -1457,67 +1472,87 @@ ${safePdfWorker}
                     if (nonChoicePrefixes.test(precedingText)) {
                         return match;
                     }
-                    return prev + "\\n" + marker + " ";
+                    return prev + "\n" + marker + " ";
                 });
 
                 // Ensure Options: header is followed by choice A on its own line
-                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\\n$2 ");
+                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\n$2 ");
 
                 // Format Rationale / Explanation / Note / Discussion headers
-                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion)\\\\s*:", "gi"), "$1\\n\\n$2:");
+                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\\\s*:", "gi"), "$1\n\n$2:");
 
-                return result.replace(new RegExp("\\\\n{3,}", "g"), "\\n\\n").trim();
+                return result.replace(new RegExp("\\\\n{3,}", "g"), "\n\n").trim();
             } catch (err) {
-                console.warn('formatQuestionnaireText error:', err);
+                console.warn("formatQuestionnaireText error:", err);
                 return text;
             }
         }
 
         function sanitizeText(rawText) {
-            if (!rawText) return '';
-            return rawText
-                .replace(new RegExp("\\\\s+", "g"), " ")
-                .replace(new RegExp("\\\\s+([.,!?:;])", "g"), "$1")
-                .trim();
+            if (!rawText) return "";
+            let text = rawText;
+
+            try {
+                text = text.normalize("NFKC");
+            } catch (e) {}
+
+            text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
+            text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
+            text = text.replace(/(\w)[\uE000-\uF8FF]+(\w)/g, "$1$2");
+            text = text.replace(/[\uE000-\uF8FF]/g, "");
+
+            text = text.replace(/[ \t\f\v]+/g, " ");
+            text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
+            text = text.replace(/ \b([.,!?:;])/g, "$1");
+
+            return text.trim();
         }
 
         function renderMathAndUnits(text) {
-            if (!text || typeof text !== 'string') return text || '';
+            if (!text || typeof text !== "string") return text || "";
             let result = text;
 
-            // 1. Replace LaTeX \text{...} -> ...
-            result = result.replace(new RegExp("\\\\\\\\text\\\\s*\\\\{([^}]+)\\\\}", "g"), "$1");
+            let prevResult;
+            let textCount = 0;
+            do {
+                prevResult = result;
+                result = result.replace(new RegExp("\\\\text\\s*\\{([^}]+)\\}", "g"), "$1");
+                textCount++;
+            } while (result !== prevResult && textCount < 10);
 
-            // 2. Replace LaTeX \frac{a}{b} -> (a / b)
-            let limit = 0;
-            while (new RegExp("\\\\\\\\frac\\\\s*\\\\{[^}]+\\\\}\\\\s*\\\\{[^}]+\\\\}").test(result) && limit < 10) {
-                result = result.replace(new RegExp("\\\\\\\\frac\\\\s*\\\\{([^}]+)\\\\}\\\\s*\\\\{([^}]+)\\\\}", "g"), "($1 / $2)");
-                limit++;
-            }
+            let fracCount = 0;
+            do {
+                prevResult = result;
+                result = result.replace(new RegExp("\\\\frac\\s*\\{([^}]*)\\}\\s*\\{([^}]*)\\}", "g"), "($1 / $2)");
+                fracCount++;
+            } while (result !== prevResult && fracCount < 10);
 
-            // 3. Replace math symbols
-            result = result.replace(new RegExp("\\\\\\\\times", "g"), "×");
-            result = result.replace(new RegExp("\\\\\\\\div", "g"), "÷");
-            result = result.replace(new RegExp("\\\\\\\\cdot", "g"), "·");
-            result = result.replace(new RegExp("\\\\\\\\pm", "g"), "±");
-            result = result.replace(new RegExp("\\\\\\\\le(q)?\\\\b", "g"), "≤");
-            result = result.replace(new RegExp("\\\\\\\\ge(q)?\\\\b", "g"), "≥");
-            result = result.replace(new RegExp("\\\\\\\\neq\\\\b", "g"), "≠");
-            result = result.replace(new RegExp("\\\\\\\\approx\\\\b", "g"), "≈");
-            result = result.replace(new RegExp("\\\\\\\\mu\\\\s*g\\\\b|\\\\\\\\mu\\\\s*\\\\\\\\text\\\\s*\\\\{g\\\\}|\\\\\\\\mu", "g"), "µg");
-            result = result.replace(new RegExp("\\\\\\\\alpha\\\\b", "g"), "α");
-            result = result.replace(new RegExp("\\\\\\\\beta\\\\b", "g"), "β");
-            result = result.replace(new RegExp("\\\\\\\\square\\\\b", "g"), "[ ]");
+            result = result.replace(new RegExp("\\\\times\\b|\\\\times", "g"), "×");
+            result = result.replace(new RegExp("\\\\div\\b|\\\\div", "g"), "÷");
+            result = result.replace(new RegExp("\\\\cdot\\b|\\\\cdot", "g"), "·");
+            result = result.replace(new RegExp("\\\\pm\\b|\\\\pm", "g"), "±");
+            result = result.replace(new RegExp("\\\\le(q)?\\b", "g"), "≤");
+            result = result.replace(new RegExp("\\\\ge(q)?\\b", "g"), "≥");
+            result = result.replace(new RegExp("\\\\neq\\b", "g"), "≠");
+            result = result.replace(new RegExp("\\\\approx\\b", "g"), "≈");
+            result = result.replace(new RegExp("\\\\square\\b|\\\\Box\\b", "g"), "[ ]");
+            result = result.replace(new RegExp("\\\\alpha\\b", "g"), "α");
+            result = result.replace(new RegExp("\\\\beta\\b", "g"), "β");
+            result = result.replace(new RegExp("\\\\gamma\\b", "g"), "γ");
+            result = result.replace(new RegExp("\\\\delta\\b", "g"), "δ");
+            result = result.replace(new RegExp("\\\\theta\\b", "g"), "θ");
+            result = result.replace(new RegExp("\\\\sigma\\b", "g"), "σ");
+            result = result.replace(new RegExp("\\\\mu\\s*g\\b|\\\\mu\\b", "g"), "µg");
 
-            // Clean up percent escaping: \% -> %
-            result = result.replace(new RegExp("\\\\\\\\%", "g"), "%");
+            result = result.replace(new RegExp("\\\\%", "g"), "%");
 
-            // Clean up dollar sign math delimiters: $ ... $ or $$ ... $$
-            result = result.replace(new RegExp("\\\\$\\\\s*\\\\$", "g"), "");
-            result = result.replace(new RegExp("\\\\$\\\\$\\\\s*([^\\\\$]+)\\\\$\\\\$", "g"), "$1");
-            result = result.replace(new RegExp("\\\\$([^\\\\$]+)\\\\$", "g"), "$1");
+            result = result.replace(new RegExp("\\$\\$\\s*([^\\$]+)\\$\\$", "g"), "$1");
+            result = result.replace(new RegExp("\\$([^\\$]+)\\$", "g"), "$1");
+            result = result.replace(new RegExp("\\$", "g"), "");
 
-            return result.replace(new RegExp("\\\\s+", "g"), " ").trim();
+            result = result.replace(new RegExp("\\{\\s*\\}", "g"), "");
+
+            return result.replace(/[ \t]+/g, " ").trim();
         }
 
         async function getPageSanitizedText(pageIdx) {
@@ -1973,6 +2008,9 @@ ${safePdfWorker}
                     minHeight: 300,
                     maxHeight: 2500,
                     drawShadow: true,
+                    maxShadowOpacity: 0.8,
+                    flippingTime: 800,
+                    useMouseEvents: true,
                     showCover: false,
                     usePortrait: true, // Forces 1-page mode
                     startPage: currentPageIndex,
