@@ -1662,10 +1662,23 @@ ${safePdfWorker}
             if (el) el.innerText = text;
         }
 
+        function forceHideLoadingScreen() {
+            const loadingScreenEl = document.getElementById('loading-screen');
+            if (loadingScreenEl && loadingScreenEl.style.display !== 'none') {
+                loadingScreenEl.style.opacity = '0';
+                loadingScreenEl.style.transition = 'opacity 0.25s ease-out';
+                setTimeout(() => { loadingScreenEl.style.display = 'none'; }, 250);
+            }
+        }
+
         async function initApp() {
             safeSetText('loading-text', 'Decoding PDF Stream...');
-            // Yield execution to allow browser UI thread to render loading screen text update
-            await new Promise(r => setTimeout(r, 20));
+
+            // 2.5-second fail-safe fallback timeout: force-resolve loading state to immediately present viewer UI
+            const initSafetyTimeout = setTimeout(() => {
+                console.warn("Engine initialization fallback timeout reached (2.5s). Force-resolving loading screen.");
+                forceHideLoadingScreen();
+            }, 2500);
 
             // Inline worker initialization safely via Blob URL with fallback handling
             try {
@@ -1677,22 +1690,6 @@ ${safePdfWorker}
             } catch(e) {
                 console.warn("Worker setup warning (falling back to main thread worker):", e);
             }
-
-            // 8-second safety fallback timer for initialization
-            const initSafetyTimeout = setTimeout(() => {
-                const loadingScreenEl = document.getElementById('loading-screen');
-                if (loadingScreenEl && loadingScreenEl.style.display !== 'none') {
-                    safeSetText('loading-text', 'Loading taking longer than expected... Click to try rendering.');
-                    const btnRetry = document.createElement('button');
-                    btnRetry.innerText = 'Dismiss Loading Screen';
-                    btnRetry.style.cssText = 'margin-top:12px;padding:8px 16px;background:#6366F1;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;';
-                    btnRetry.onclick = () => { loadingScreenEl.style.display = 'none'; };
-                    if (!document.getElementById('retry-init-btn')) {
-                        btnRetry.id = 'retry-init-btn';
-                        loadingScreenEl.appendChild(btnRetry);
-                    }
-                }
-            }, 8000);
 
             try {
                 // Decode raw PDF Base64 safely to Uint8Array
@@ -1723,18 +1720,20 @@ ${safePdfWorker}
                 setupEvents();
                 buildDrawerGrid();
 
-                // 1. INSTANT FIRST PAGE RENDER
-                // Trigger render for the initial active page immediately
-                await goToPage(currentPageIndex);
-
-                // Hide loading overlay right after Page 1 / initial page draws!
-                clearTimeout(initSafetyTimeout);
-                const loadingScreenEl = document.getElementById('loading-screen');
-                if (loadingScreenEl) {
-                    loadingScreenEl.style.opacity = '0';
-                    loadingScreenEl.style.transition = 'opacity 0.25s ease-out';
-                    setTimeout(() => { loadingScreenEl.style.display = 'none'; }, 250);
+                // 1. INSTANT FIRST PAGE DISPLAY
+                // Render initial active page first for instant display
+                try {
+                    await renderPage(currentPageIndex);
+                } catch(renderErr) {
+                    console.warn("Initial page render warning:", renderErr);
                 }
+
+                // Hide loading overlay immediately after initial page render completes!
+                clearTimeout(initSafetyTimeout);
+                forceHideLoadingScreen();
+
+                // Set up viewer state for active page
+                goToPage(currentPageIndex);
 
                 // 2. BACKGROUND ASYNCHRONOUS PROCESSING (DEFERRED TASKS)
                 const runBackgroundTasks = () => {
@@ -1751,6 +1750,7 @@ ${safePdfWorker}
 
             } catch (err) {
                 clearTimeout(initSafetyTimeout);
+                forceHideLoadingScreen();
                 console.error("PDF Initialization Error:", err);
                 safeSetText('loading-text', 'Error loading document: ' + (err.message || err));
             }
@@ -1920,7 +1920,7 @@ ${safePdfWorker}
             updateChaptersDrawerActive(p);
             lazyRender(p);
 
-            await prepareTtsForCurrentPage();
+            prepareTtsForCurrentPage().catch(err => console.warn("Background TTS prep error:", err));
 
             if (isMobileMode) {
                 if (oldIdx !== p) {
