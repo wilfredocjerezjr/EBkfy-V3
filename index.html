@@ -1308,7 +1308,7 @@ ${safePdfWorker}
                 ttsSentences = ["No text available on page " + (currentPageIndex + 1)];
             } else {
                 // Split text into sentences for fine-grained highlighting
-                ttsSentences = text.match(new RegExp("[^.!?]+[.!?]+(\\\\s+|$)|[^.!?]+$", "g")) || [text];
+                ttsSentences = text.match(new RegExp("[^.!?]+[.!?]+(\\\\\\\\s+|$)|[^.!?]+$", "g")) || [text];
                 ttsSentences = ttsSentences.map(s => renderMathAndUnits(sanitizeText(s))).filter(Boolean);
             }
             if (!ttsSentences.length) {
@@ -1490,7 +1490,7 @@ ${safePdfWorker}
                 let result = text;
 
                 // 1. Format option headers (Options:, Choices:, Select:, Answers:)
-                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "\nOptions:\n");
+                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "\\nOptions:\\n");
 
                 const nonChoicePrefixes = new RegExp("\\\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\\\\s+$", "i");
 
@@ -1500,16 +1500,16 @@ ${safePdfWorker}
                     if (nonChoicePrefixes.test(precedingText)) {
                         return match;
                     }
-                    return prev + "\n" + marker + " ";
+                    return prev + "\\n" + marker + " ";
                 });
 
                 // Ensure Options: header is followed by choice A on its own line
-                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\n$2 ");
+                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\\n$2 ");
 
                 // Format Rationale / Explanation / Note / Discussion headers
-                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\\\s*:", "gi"), "$1\n\n$2:");
+                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\\\s*:", "gi"), "$1\\n\\n$2:");
 
-                return result.replace(new RegExp("\\\\n{3,}", "g"), "\n\n").trim();
+                return result.replace(new RegExp("\\\\n{3,}", "g"), "\\n\\n").trim();
             } catch (err) {
                 console.warn("formatQuestionnaireText error:", err);
                 return text;
@@ -1525,13 +1525,13 @@ ${safePdfWorker}
             } catch (e) {}
 
             text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
-            text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
-            text = text.replace(/(\w)[\uE000-\uF8FF]+(\w)/g, "$1$2");
+            text = text.replace(/(\\b\\w+)-\\s*\\n\\s*(\\w+\\b)/g, "$1$2");
+            text = text.replace(/(\\w)[\uE000-\uF8FF]+(\\w)/g, "$1$2");
             text = text.replace(/[\uE000-\uF8FF]/g, "");
 
             text = text.replace(/[ \t\f\v]+/g, " ");
-            text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
-            text = text.replace(/ \b([.,!?:;])/g, "$1");
+            text = text.replace(/ \\n/g, "\\n").replace(/\\n /g, "\\n");
+            text = text.replace(/ \\b([.,!?:;])/g, "$1");
 
             return text.trim();
         }
@@ -1594,8 +1594,8 @@ ${safePdfWorker}
                 let lastY = null;
                 for (const item of textContent.items) {
                     if (lastY !== null && Math.abs(item.transform[5] - lastY) > 8) {
-                        rawText += '\\n';
-                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\\n')) {
+                        rawText += '\\\\n';
+                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\\\\n')) {
                         rawText += ' ';
                     }
                     rawText += item.str;
@@ -1645,7 +1645,7 @@ ${safePdfWorker}
                         bodyEl.innerHTML = '<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(No extractable text on this page)</p>';
                     } else {
                         const formattedText = formatQuestionnaireText(text);
-                        const paragraphs = formattedText.split(/\\n+/);
+                        const paragraphs = formattedText.split(/\\\\n+/);
                         paragraphs.forEach((pText, pIdx) => {
                             const cleanP = sanitizeText(pText);
                             if (cleanP) {
