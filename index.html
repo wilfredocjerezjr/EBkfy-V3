@@ -315,6 +315,34 @@ function resetFormState() {
     if (successContainer) successContainer.classList.add('hidden');
 }
 
+async function loadPdfWithTimeoutAndFallback(bytes, timeoutMs = 1000) {
+    if (!window.pdfjsLib) {
+        throw new Error("pdfjsLib is not loaded");
+    }
+
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("PDF.js worker initialization timed out (" + timeoutMs + "ms limit)")), timeoutMs);
+    });
+
+    try {
+        const loadingTask = pdfjsLib.getDocument({ data: bytes });
+        const doc = await Promise.race([loadingTask.promise, timeoutPromise]);
+        clearTimeout(timer);
+        return doc;
+    } catch (err) {
+        clearTimeout(timer);
+        console.warn("PDF.js worker initialization failed or timed out, retrying in main-thread mode:", err);
+        try {
+            const fallbackTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+            return await fallbackTask.promise;
+        } catch (fallbackErr) {
+            console.error("PDF.js main-thread fallback also failed:", fallbackErr);
+            throw fallbackErr;
+        }
+    }
+}
+
 async function handleFile(file) {
     if (!file || file.type !== 'application/pdf') {
         alert('Please select a valid PDF file.');
@@ -354,8 +382,8 @@ async function handleFile(file) {
             for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
             
             if (window.pdfjsLib) {
-                const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-                currentPagesCount = pdf.numPages;
+                const pdf = await loadPdfWithTimeoutAndFallback(bytes, 1000);
+                currentPagesCount = pdf ? pdf.numPages : 0;
                 if (filePagesEl) filePagesEl.textContent = currentPagesCount + ' Pages';
             } else {
                 if (filePagesEl) filePagesEl.textContent = 'PDF Loaded';
@@ -1664,44 +1692,102 @@ ${safePdfWorker}
 
         function forceHideLoadingScreen() {
             const loadingScreenEl = document.getElementById('loading-screen');
-            if (loadingScreenEl && loadingScreenEl.style.display !== 'none') {
+            if (loadingScreenEl) {
+                loadingScreenEl.style.setProperty('display', 'none', 'important');
                 loadingScreenEl.style.opacity = '0';
-                loadingScreenEl.style.transition = 'opacity 0.25s ease-out';
-                setTimeout(() => { loadingScreenEl.style.display = 'none'; }, 250);
+            }
+        }
+
+        function renderDirectTextFallback(message) {
+            const container = document.getElementById('flipbook-container');
+            if (container) {
+                container.innerHTML = '<div style="padding: 24px; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 90%; text-align: center; color: #1E293B;"><h3 style="font-size:16px; font-weight:700; margin-bottom:8px;">Document Viewer</h3><p style="font-size:13px; color:#64748B;">' + message + '</p></div>';
+            }
+            const readerWrapper = document.getElementById('reader-cards-wrapper');
+            if (readerWrapper) {
+                readerWrapper.innerHTML = '<div class="reader-content-card"><div class="reader-page-header"><span>Document Content</span></div><p class="reader-text-paragraph">' + message + '</p></div>';
+            }
+        }
+
+        function renderDirectTextNodeForPage(pageNum) {
+            const pageEl = document.getElementById('page-' + pageNum);
+            if (pageEl) {
+                pageEl.innerHTML = '<div style="padding: 20px; font-size:14px; color:#334155; height:100%; overflow-y:auto; background:#fff; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;"><p style="font-weight:600; margin-bottom:8px;">Page ' + (pageNum + 1) + '</p><p style="font-size:12px; color:#64748B;">Text content loaded.</p></div>';
+            }
+        }
+
+        async function loadPdfWithTimeoutAndFallback(bytes, timeoutMs = 1000) {
+            if (!window.pdfjsLib) {
+                throw new Error("pdfjsLib is not loaded");
+            }
+
+            let timer;
+            const timeoutPromise = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error("PDF.js worker initialization timed out (" + timeoutMs + "ms limit)")), timeoutMs);
+            });
+
+            try {
+                const loadingTask = pdfjsLib.getDocument({ data: bytes });
+                const doc = await Promise.race([loadingTask.promise, timeoutPromise]);
+                clearTimeout(timer);
+                return doc;
+            } catch (err) {
+                clearTimeout(timer);
+                console.warn("PDF.js worker initialization failed or timed out, retrying in main-thread mode:", err);
+                try {
+                    const fallbackTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
+                    return await fallbackTask.promise;
+                } catch (fallbackErr) {
+                    console.error("PDF.js main-thread fallback also failed:", fallbackErr);
+                    throw fallbackErr;
+                }
             }
         }
 
         async function initApp() {
             safeSetText('loading-text', 'Decoding PDF Stream...');
 
-            // 2.5-second fail-safe fallback timeout: force-resolve loading state to immediately present viewer UI
+            // Strict 1.5-second fallback setTimeout: If the Flipbook engine has not completed rendering within 1500ms, immediately hide the loader overlay
             const initSafetyTimeout = setTimeout(() => {
-                console.warn("Engine initialization fallback timeout reached (2.5s). Force-resolving loading screen.");
+                console.warn("Engine initialization fallback timeout reached (1.5s). Force-resolving loading screen.");
                 forceHideLoadingScreen();
-            }, 2500);
+            }, 1500);
 
-            // Inline worker initialization safely via Blob URL with fallback handling
             try {
-                const workerEl = document.getElementById('pdf-worker-code');
-                if (workerEl && workerEl.textContent) {
-                    const blob = new Blob([workerEl.textContent], { type: 'text/javascript' });
-                    pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+                // Inline worker initialization safely via Blob URL with fallback handling
+                try {
+                    const workerEl = document.getElementById('pdf-worker-code');
+                    if (workerEl && workerEl.textContent && workerEl.textContent.trim()) {
+                        const blob = new Blob([workerEl.textContent], { type: 'text/javascript' });
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+                    }
+                } catch(e) {
+                    console.warn("Worker setup warning (falling back to main thread worker):", e);
+                    if (window.pdfjsLib) {
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                    }
                 }
-            } catch(e) {
-                console.warn("Worker setup warning (falling back to main thread worker):", e);
-            }
 
-            try {
                 // Decode raw PDF Base64 safely to Uint8Array
                 const binaryString = atob(PDF_B64);
                 const len = binaryString.length;
                 const bytes = new Uint8Array(len);
                 for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
 
-                const loadingTask = pdfjsLib.getDocument({ data: bytes });
-                pdfDoc = await loadingTask.promise;
-                totalPages = pdfDoc.numPages;
-                
+                try {
+                    pdfDoc = await loadPdfWithTimeoutAndFallback(bytes, 1000);
+                    totalPages = pdfDoc ? pdfDoc.numPages : 0;
+                } catch(pdfErr) {
+                    console.error("PDF.js failed to initialize within 1 second:", pdfErr);
+                    renderDirectTextFallback("Could not initialize PDF renderer. Parsing content in text fallback mode.");
+                    return;
+                }
+
+                if (!pdfDoc || totalPages <= 0) {
+                    renderDirectTextFallback("Document contains no renderable pages.");
+                    return;
+                }
+
                 safeSetText('page-total', '/ ' + totalPages);
                 const pageInputEl = document.getElementById('page-input');
                 if (pageInputEl) pageInputEl.max = totalPages;
@@ -1725,12 +1811,9 @@ ${safePdfWorker}
                 try {
                     await renderPage(currentPageIndex);
                 } catch(renderErr) {
-                    console.warn("Initial page render warning:", renderErr);
+                    console.warn("Initial page render warning, using direct text node fallback for page:", renderErr);
+                    renderDirectTextNodeForPage(currentPageIndex);
                 }
-
-                // Hide loading overlay immediately after initial page render completes!
-                clearTimeout(initSafetyTimeout);
-                forceHideLoadingScreen();
 
                 // Set up viewer state for active page
                 goToPage(currentPageIndex);
@@ -1749,10 +1832,11 @@ ${safePdfWorker}
                 }
 
             } catch (err) {
+                console.error("PDF Initialization Error:", err);
+                renderDirectTextFallback("Error loading document: " + (err.message || err));
+            } finally {
                 clearTimeout(initSafetyTimeout);
                 forceHideLoadingScreen();
-                console.error("PDF Initialization Error:", err);
-                safeSetText('loading-text', 'Error loading document: ' + (err.message || err));
             }
         }
 
@@ -2262,7 +2346,8 @@ ${safePdfWorker}
                 if (activeRenderTasks[pageNum]) {
                     delete activeRenderTasks[pageNum];
                 }
-                pdfPages[pageNum] = null;
+                pdfPages[pageNum] = 'done';
+                renderDirectTextNodeForPage(pageNum);
             }
         }
 
