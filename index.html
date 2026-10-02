@@ -29,12 +29,28 @@
             }
             banner.innerHTML = '<span>' + (msg || 'An unexpected error occurred.') + '</span>';
         }
+        function isWorkerError(msg) {
+            if (!msg) return false;
+            var str = String(msg);
+            return str.indexOf('importScripts') !== -1 ||
+                   str.indexOf('WorkerGlobalScope') !== -1 ||
+                   str.indexOf('blob:null') !== -1 ||
+                   str.indexOf('Worker') !== -1;
+        }
         window.onerror = function(message, source, lineno, colno, error) {
+            if (isWorkerError(message) || isWorkerError(source)) {
+                console.warn('Silenced recoverable worker error:', message);
+                return true;
+            }
             var errMsg = 'Startup Error: ' + message;
             showGlobalErrorBanner(errMsg);
         };
         window.addEventListener('unhandledrejection', function(event) {
             var reason = event.reason ? (event.reason.message || event.reason) : 'Unknown rejection';
+            if (isWorkerError(reason)) {
+                console.warn('Silenced recoverable worker rejection:', reason);
+                return;
+            }
             var errMsg = 'Unhandled Rejection: ' + reason;
             showGlobalErrorBanner(errMsg);
         });
@@ -47,7 +63,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script>
         if (window.pdfjsLib) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            try {
+                if (window.location.protocol === 'file:' || window.location.protocol === 'content:' || window.location.origin === 'null') {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                } else {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                }
+            } catch(e) {
+                console.warn('Worker configuration error:', e);
+                if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                }
+            }
         }
     </script>
     <style>
@@ -369,6 +396,9 @@ async function loadPdfWithTimeoutAndFallback(bytes, timeoutMs = 1000) {
         clearTimeout(timer);
         console.warn("PDF.js worker initialization failed or timed out, retrying in main-thread mode:", err);
         try {
+                    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+                        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                    }
             const fallbackTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
             return await fallbackTask.promise;
         } catch (fallbackErr) {
@@ -658,12 +688,28 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
             }
             banner.innerHTML = '<span>' + (msg || 'An error occurred while loading the flipbook.') + '</span>';
         }
+        function isWorkerError(msg) {
+            if (!msg) return false;
+            var str = String(msg);
+            return str.indexOf('importScripts') !== -1 ||
+                   str.indexOf('WorkerGlobalScope') !== -1 ||
+                   str.indexOf('blob:null') !== -1 ||
+                   str.indexOf('Worker') !== -1;
+        }
         window.onerror = function(message, source, lineno, colno, error) {
+            if (isWorkerError(message) || isWorkerError(source)) {
+                console.warn('Silenced recoverable worker error:', message);
+                return true;
+            }
             var errMsg = 'Flipbook Engine Error: ' + message;
             showGlobalErrorBanner(errMsg);
         };
         window.addEventListener('unhandledrejection', function(event) {
             var reason = event.reason ? (event.reason.message || event.reason) : 'Unknown rejection';
+            if (isWorkerError(reason)) {
+                console.warn('Silenced recoverable worker rejection:', reason);
+                return;
+            }
             var errMsg = 'Unhandled Rejection: ' + reason;
             showGlobalErrorBanner(errMsg);
         });
@@ -1931,6 +1977,9 @@ ${safePdfWorker}
                 clearTimeout(timer);
                 console.warn("PDF.js worker initialization failed or timed out, retrying in main-thread mode:", err);
                 try {
+                    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+                        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                    }
                     const fallbackTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
                     return await fallbackTask.promise;
                 } catch (fallbackErr) {
@@ -1946,14 +1995,19 @@ ${safePdfWorker}
             try {
                 // Inline worker initialization safely via Blob URL with fallback handling
                 try {
+                    const isLocalOrigin = window.location.protocol === 'file:' || window.location.protocol === 'content:' || window.location.origin === 'null';
                     const workerEl = document.getElementById('pdf-worker-code');
-                    if (workerEl && workerEl.textContent && workerEl.textContent.trim()) {
+                    if (!isLocalOrigin && workerEl && workerEl.textContent && workerEl.textContent.trim()) {
                         const blob = new Blob([workerEl.textContent], { type: 'text/javascript' });
                         pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+                    } else {
+                        if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+                            pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+                        }
                     }
                 } catch(e) {
                     console.warn("Worker setup warning (falling back to main thread worker):", e);
-                    if (window.pdfjsLib) {
+                    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
                         pdfjsLib.GlobalWorkerOptions.workerSrc = '';
                     }
                 }
