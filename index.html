@@ -1933,14 +1933,8 @@ ${safePdfWorker}
         }
 
         function renderDirectTextFallback(message) {
-            const container = document.getElementById('flipbook-container');
-            if (container) {
-                container.innerHTML = '<div style="padding: 24px; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 90%; text-align: center; color: #1E293B;"><h3 style="font-size:16px; font-weight:700; margin-bottom:8px;">Document Viewer</h3><p style="font-size:13px; color:#64748B;">' + message + '</p></div>';
-            }
-            const readerWrapper = document.getElementById('reader-cards-wrapper');
-            if (readerWrapper) {
-                readerWrapper.innerHTML = '<div class="reader-content-card"><div class="reader-page-header"><span>Document Content</span></div><p class="reader-text-paragraph">' + message + '</p></div>';
-            }
+            hideLoadingSpinner();
+            toggleReaderMode(true);
         }
 
         async function renderDirectTextNodeForPage(pageNum) {
