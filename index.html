@@ -505,6 +505,94 @@ function setProgress(pct, text) {
     if (txtEl) txtEl.textContent = text;
 }
 
+function formatQuestionnaireText(text) {
+    if (!text || typeof text !== "string") return text || "";
+    try {
+        let result = text;
+        result = result.replace(new RegExp("\\b(Options|Choices|Select|Answers?)\\s*:\\s*", "gi"), "\nOptions:\n");
+        const nonChoicePrefixes = new RegExp("\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\\s+$", "i");
+        result = result.replace(new RegExp("(\\S)\\s+([A-F0-9][\\.\\)]|\\([A-F0-9]\\))\\s+", "g"), (match, prev, marker, offset, fullStr) => {
+            const precedingText = fullStr.substring(Math.max(0, offset - 30), offset + prev.length);
+            if (nonChoicePrefixes.test(precedingText)) return match;
+            return prev + "\n" + marker + " ";
+        });
+        result = result.replace(new RegExp("(Options:)\\s*\\n?\\s*([A-F0-9][\\.\\)]|\\([A-F0-9]\\))\\s+", "gi"), "$1\n$2 ");
+        result = result.replace(new RegExp("(\\S)\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\s*:", "gi"), "$1\n\n$2:");
+        return result.replace(new RegExp("\\n{3,}", "g"), "\n\n").trim();
+    } catch (err) {
+        console.warn("formatQuestionnaireText error:", err);
+        return text;
+    }
+}
+
+function sanitizeText(rawText) {
+    if (!rawText) return "";
+    let text = rawText;
+    try { text = text.normalize("NFKC"); } catch (e) {}
+    text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
+    text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
+    text = text.replace(/(\w)[\uE000-\uF8FF]+(\w)/g, "$1$2");
+    text = text.replace(/[\uE000-\uF8FF]/g, "");
+    text = text.replace(/[ \t\f\v]+/g, " ");
+    text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
+    text = text.replace(/ \b([.,!?:;])/g, "$1");
+    return text.trim();
+}
+
+function renderMathAndUnits(text) {
+    if (!text || typeof text !== "string") return text || "";
+    let result = text;
+    result = result.replace(/\\\\/g, "\\");
+    if (typeof window !== "undefined" && window.katex && window.katex.renderToString) {
+        try {
+            result = result.replace(new RegExp("\\$\\$\\s*([^\\$]+)\\s*\\$\\$", "g"), (match, expr) => {
+                try { return window.katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }); } catch(e) { return expr; }
+            });
+            result = result.replace(new RegExp("\\$([^\\$]+)\\$", "g"), (match, expr) => {
+                try { return window.katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false }); } catch(e) { return expr; }
+            });
+        } catch(err) {}
+    }
+    let prev, count = 0;
+    do {
+        prev = result;
+        result = result.replace(new RegExp("\\\\text\\s*\\{([^}]*)\\}", "g"), "$1");
+        count++;
+    } while (result !== prev && count < 10);
+    count = 0;
+    do {
+        prev = result;
+        result = result.replace(new RegExp("\\\\frac\\s*\\{([^}]*)\\}\\s*\\{([^}]*)\\}", "g"), "($1 / $2)");
+        count++;
+    } while (result !== prev && count < 10);
+    result = result.replace(new RegExp("\\\\times\\b|\\\\times", "g"), "×");
+    result = result.replace(new RegExp("\\\\div\\b|\\\\div", "g"), "÷");
+    result = result.replace(new RegExp("\\\\cdot\\b|\\\\cdot", "g"), "·");
+    result = result.replace(new RegExp("\\\\pm\\b|\\\\pm", "g"), "±");
+    result = result.replace(new RegExp("\\\\le(q)?\\b", "g"), "≤");
+    result = result.replace(new RegExp("\\\\ge(q)?\\b", "g"), "≥");
+    result = result.replace(new RegExp("\\\\neq\\b", "g"), "≠");
+    result = result.replace(new RegExp("\\\\approx\\b", "g"), "≈");
+    result = result.replace(new RegExp("\\\\square\\b|\\\\Box\\b", "g"), "[ ]");
+    result = result.replace(new RegExp("\\\\alpha\\b", "g"), "α");
+    result = result.replace(new RegExp("\\\\beta\\b", "g"), "β");
+    result = result.replace(new RegExp("\\\\gamma\\b", "g"), "γ");
+    result = result.replace(new RegExp("\\\\delta\\b", "g"), "δ");
+    result = result.replace(new RegExp("\\\\theta\\b", "g"), "θ");
+    result = result.replace(new RegExp("\\\\sigma\\b", "g"), "σ");
+    result = result.replace(new RegExp("\\\\mu\\s*g\\b", "g"), "mcg");
+    result = result.replace(new RegExp("\\\\mu\\b", "g"), "µ");
+    result = result.replace(new RegExp("\\\\%", "g"), "%");
+    result = result.replace(new RegExp("\\$", "g"), "");
+    count = 0;
+    do {
+        prev = result;
+        result = result.replace(new RegExp("\\(\\s*\\)|\\[\\s*\\]|\\{\\s*\\}", "g"), "");
+        count++;
+    } while (result !== prev && count < 5);
+    return result.replace(/[ \t]+/g, " ").trim();
+}
+
 const btnExport = getEl('btn-export');
 if (btnExport) {
     btnExport.addEventListener('click', async () => {
@@ -518,21 +606,178 @@ if (btnExport) {
         if (processingContainer) processingContainer.classList.remove('hidden');
         
         try {
-            // Step 1: Analyze PDF
+            // Step 1: Analyze PDF Structure & Chapters
             updateStepStatus(1, 'active');
-            setProgress(15, 'Analyzing PDF Structure & Metadata...');
-            await new Promise(r => setTimeout(r, 400));
+            setProgress(10, 'Analyzing PDF Structure & Metadata...');
+            await new Promise(r => setTimeout(r, 100));
+
+            let pdfDocForExport = null;
+            if (currentBase64) {
+                try {
+                    const raw = atob(currentBase64);
+                    const bytes = new Uint8Array(raw.length);
+                    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                    pdfDocForExport = await loadPdfWithTimeoutAndFallback(bytes, 2000);
+                } catch(e) {
+                    console.warn("Could not load pdfDocForExport:", e);
+                }
+            }
+
+            const totalPages = pdfDocForExport ? pdfDocForExport.numPages : (currentPagesCount || 1);
+
+            // Extract Chapters Outline
+            const flatChapters = [];
+            let embeddedChapters = [];
+            if (pdfDocForExport) {
+                try {
+                    async function resolveDest(dest) {
+                        if (!dest) return null;
+                        try {
+                            if (typeof dest === 'string') {
+                                const resolved = await pdfDocForExport.getDestination(dest);
+                                return await resolveDest(resolved);
+                            } else if (Array.isArray(dest)) {
+                                const destRef = dest[0];
+                                if (destRef && typeof destRef === 'object') {
+                                    return await pdfDocForExport.getPageIndex(destRef);
+                                }
+                            }
+                        } catch (err) {}
+                        return null;
+                    }
+                    async function parseOutlineRecursive(items, depth = 0) {
+                        const parsedList = [];
+                        for (const item of items) {
+                            let pageIdx = null;
+                            if (item.dest) pageIdx = await resolveDest(item.dest);
+                            const parsed = {
+                                title: item.title || "Untitled Topic",
+                                pageIndex: pageIdx,
+                                depth: depth,
+                                items: []
+                            };
+                            if (pageIdx !== null) flatChapters.push(parsed);
+                            if (item.items && item.items.length > 0) {
+                                parsed.items = await parseOutlineRecursive(item.items, depth + 1);
+                            }
+                            parsedList.push(parsed);
+                        }
+                        return parsedList;
+                    }
+                    const outline = await pdfDocForExport.getOutline();
+                    if (outline && outline.length > 0) {
+                        embeddedChapters = await parseOutlineRecursive(outline, 0);
+                    }
+                } catch(outlineErr) {
+                    console.warn("Outline extraction warning:", outlineErr);
+                }
+            }
+
+            if (!embeddedChapters || embeddedChapters.length === 0) {
+                const interval = Math.max(1, Math.floor(totalPages / 10));
+                for (let i = 0; i < totalPages; i += interval) {
+                    const item = {
+                        title: `Section starting at Page ${i + 1}`,
+                        pageIndex: i,
+                        depth: 0,
+                        items: []
+                    };
+                    embeddedChapters.push(item);
+                    flatChapters.push(item);
+                }
+            }
             updateStepStatus(1, 'done');
-            
-            // Step 2: Configure Mobile Engine
+
+            // Step 2: Extract & Render Standalone Pages into EMBEDDED_PAGES
             updateStepStatus(2, 'active');
-            setProgress(35, 'Configuring Single-Page Mobile Engine...');
-            await new Promise(r => setTimeout(r, 400));
-            updateStepStatus(2, 'done');
+            setProgress(25, 'Extracting & Rendering Standalone Pages...');
             
+            const embeddedPages = [];
+            for (let i = 0; i < totalPages; i++) {
+                const pct = Math.floor(25 + (i / totalPages) * 30);
+                setProgress(pct, `Processing Page ${i + 1} of ${totalPages}...`);
+
+                let imgDataUrl = '';
+                let cleanedText = '';
+
+                if (pdfDocForExport) {
+                    try {
+                        const page = await pdfDocForExport.getPage(i + 1);
+
+                        // Render Canvas Image
+                        try {
+                            const viewport = page.getViewport({ scale: 1.5 });
+                            const canvas = document.createElement('canvas');
+                            canvas.width = Math.floor(viewport.width);
+                            canvas.height = Math.floor(viewport.height);
+                            const ctx = canvas.getContext('2d', { alpha: false });
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                            imgDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        } catch(canvasErr) {
+                            console.warn(`Canvas render error on page ${i + 1}:`, canvasErr);
+                        }
+
+                        // Extract Text
+                        try {
+                            const textContent = await page.getTextContent();
+                            let rawText = '';
+                            let lastY = null;
+                            for (const item of textContent.items) {
+                                if (lastY !== null && Math.abs(item.transform[5] - lastY) > 8) {
+                                    rawText += '\n';
+                                } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\n')) {
+                                    rawText += ' ';
+                                }
+                                rawText += item.str;
+                                lastY = item.transform[5];
+                            }
+                            cleanedText = formatQuestionnaireText(renderMathAndUnits(sanitizeText(rawText)));
+                        } catch(textErr) {
+                            console.warn(`Text extraction error on page ${i + 1}:`, textErr);
+                        }
+                    } catch(pageErr) {
+                        console.warn(`Error loading page ${i + 1}:`, pageErr);
+                    }
+                }
+
+                // Construct clean HTML string for page i
+                let pageHtml = `<div class="page-content" id="page-content-${i}">`;
+                if (imgDataUrl) {
+                    pageHtml += `<div class="page-img-wrapper"><img src="${imgDataUrl}" class="page-img" alt="Page ${i + 1}" /></div>`;
+                }
+                pageHtml += `<div class="page-text-wrapper" id="page-text-${i}">`;
+                if (cleanedText) {
+                    const paragraphs = cleanedText.split(/\n+/);
+                    let globalSentenceIdx = 0;
+                    paragraphs.forEach((pText) => {
+                        const cleanP = sanitizeText(pText);
+                        if (cleanP) {
+                            pageHtml += `<p class="reader-text-paragraph">`;
+                            const sentences = cleanP.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanP];
+                            sentences.forEach(s => {
+                                const cleanS = renderMathAndUnits(sanitizeText(s));
+                                if (cleanS) {
+                                    pageHtml += `<span class="reader-tts-sentence" data-sentence-idx="${globalSentenceIdx++}">${cleanS} </span>`;
+                                }
+                            });
+                            pageHtml += `</p>`;
+                        }
+                    });
+                } else {
+                    pageHtml += `<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(Page ${i + 1})</p>`;
+                }
+                pageHtml += `</div></div>`;
+
+                embeddedPages.push(pageHtml);
+            }
+
+            updateStepStatus(2, 'done');
+
             // Step 3: Bundle Scripts
             updateStepStatus(3, 'active');
-            setProgress(55, 'Fetching & Bundling Offline Rendering Scripts...');
+            setProgress(60, 'Fetching & Bundling Offline Scripts...');
             
             async function fetchWithTimeout(url, timeoutMs = 6000) {
                 const controller = new AbortController();
@@ -551,33 +796,33 @@ if (btnExport) {
                 }
             }
 
-            const [pdfJsRes, pdfWorkerRes, pageFlipRes, katexJsRes, katexCssRes] = await Promise.all([
-                fetchWithTimeout('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'),
-                fetchWithTimeout('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'),
-                fetchWithTimeout('https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js'),
-                fetchWithTimeout('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js'),
-                fetchWithTimeout('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css')
-            ]);
+            let pageFlipCode = '', katexJsCode = '', katexCssCode = '';
+            try {
+                const [pageFlipRes, katexJsRes, katexCssRes] = await Promise.all([
+                    fetchWithTimeout('https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js').catch(()=>null),
+                    fetchWithTimeout('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js').catch(()=>null),
+                    fetchWithTimeout('https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css').catch(()=>null)
+                ]);
+                if (pageFlipRes) pageFlipCode = await pageFlipRes.text();
+                if (katexJsRes) katexJsCode = await katexJsRes.text();
+                if (katexCssRes) katexCssCode = await katexCssRes.text();
+            } catch(e) {
+                console.warn("Script fetching non-critical warning:", e);
+            }
 
-            const pdfJsCode = await pdfJsRes.text();
-            const pdfWorkerCode = await pdfWorkerRes.text();
-            const pageFlipCode = await pageFlipRes.text();
-            const katexJsCode = await katexJsRes.text();
-            const katexCssCode = await katexCssRes.text();
-            
             updateStepStatus(3, 'done');
             
             // Step 4: Package HTML
             updateStepStatus(4, 'active');
             setProgress(85, 'Packaging Standalone Ebook (.html)...');
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, 200));
             
             generatedExportHtml = generateOfflineHtml(
                 (titleInput && titleInput.value) || 'Flipbook Ebook',
                 (authorInput && authorInput.value) || 'Anonymous',
-                currentBase64,
-                pdfJsCode,
-                pdfWorkerCode,
+                embeddedPages,
+                embeddedChapters,
+                flatChapters,
                 pageFlipCode,
                 katexJsCode,
                 katexCssCode
@@ -585,7 +830,7 @@ if (btnExport) {
 
             updateStepStatus(4, 'done');
             setProgress(100, 'Export Packaging Complete!');
-            await new Promise(r => setTimeout(r, 400));
+            await new Promise(r => setTimeout(r, 300));
             
             // Display Success View
             if (processingContainer) processingContainer.classList.add('hidden');
@@ -595,7 +840,7 @@ if (btnExport) {
             const statSizeEl = getEl('stat-size');
             if (statSizeEl) statSizeEl.textContent = `~${estMb} MB`;
             const statPagesEl = getEl('stat-pages');
-            if (statPagesEl) statPagesEl.textContent = `${currentPagesCount || '-'} Pages`;
+            if (statPagesEl) statPagesEl.textContent = `${embeddedPages.length} Pages`;
 
         } catch (err) {
             console.error("Export Engine Exception:", err);
@@ -644,7 +889,7 @@ if (btnClosePreview) {
     });
 }
 
-function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode, pageFlipCode, katexJsCode, katexCssCode) {
+function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, flatChapters, pageFlipCode, katexJsCode, katexCssCode) {
     const safeTitle = (title || 'Flipbook Ebook').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const safeAuthor = (author || 'Anonymous').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const safeTitleKey = safeTitle.replace(/[^a-zA-Z0-9]/g, '_');
@@ -652,10 +897,12 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
     const scriptOpen = "<scr" + "ipt>";
     const scriptClose = "</scr" + "ipt>";
 
-    const safePdfJs = (pdfJsCode || '').replace(/<\/script>/gi, '<\\/script>');
-    const safePdfWorker = (pdfWorkerCode || '').replace(/<\/script>/gi, '<\\/script>');
     const safePageFlip = (pageFlipCode || '').replace(/<\/script>/gi, '<\\/script>');
     const safeKatexJs = (katexJsCode || '').replace(/<\/script>/gi, '<\\/script>');
+
+    const pagesJson = JSON.stringify(embeddedPages || []).replace(/<\/script>/gi, '<\\/script>');
+    const chaptersJson = JSON.stringify(embeddedChapters || []).replace(/<\/script>/gi, '<\\/script>');
+    const flatChaptersJson = JSON.stringify(flatChapters || []).replace(/<\/script>/gi, '<\\/script>');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -688,28 +935,12 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
             }
             banner.innerHTML = '<span>' + (msg || 'An error occurred while loading the flipbook.') + '</span>';
         }
-        function isWorkerError(msg) {
-            if (!msg) return false;
-            var str = String(msg);
-            return str.indexOf('importScripts') !== -1 ||
-                   str.indexOf('WorkerGlobalScope') !== -1 ||
-                   str.indexOf('blob:null') !== -1 ||
-                   str.indexOf('Worker') !== -1;
-        }
         window.onerror = function(message, source, lineno, colno, error) {
-            if (isWorkerError(message) || isWorkerError(source)) {
-                console.warn('Silenced recoverable worker error:', message);
-                return true;
-            }
             var errMsg = 'Flipbook Engine Error: ' + message;
             showGlobalErrorBanner(errMsg);
         };
         window.addEventListener('unhandledrejection', function(event) {
             var reason = event.reason ? (event.reason.message || event.reason) : 'Unknown rejection';
-            if (isWorkerError(reason)) {
-                console.warn('Silenced recoverable worker rejection:', reason);
-                return;
-            }
             var errMsg = 'Unhandled Rejection: ' + reason;
             showGlobalErrorBanner(errMsg);
         });
@@ -1335,76 +1566,30 @@ function generateOfflineHtml(title, author, pdfBase64, pdfJsCode, pdfWorkerCode,
 
     <!-- 100% OFFLINE BUNDLED SCRIPTS -->
     ${scriptOpen}
-        ${safePdfJs}
-    ${scriptClose}
-    ${scriptOpen}
         ${safePageFlip}
     ${scriptClose}
     ${scriptOpen}
         ${safeKatexJs}
     ${scriptClose}
-    <script type="text/plain" id="pdf-worker-code">
-${safePdfWorker}
-    ${scriptClose}
 
     <!-- MAIN READER LOGIC -->
     ${scriptOpen}
-        const PDF_B64 = "${pdfBase64}";
+        window.EMBEDDED_PAGES = ${pagesJson};
+        window.EMBEDDED_CHAPTERS = ${chaptersJson};
+        window.FLAT_CHAPTERS = ${flatChaptersJson};
         const STORAGE_KEY = "flipbook_pos_${safeTitleKey}";
         
-        let pdfDoc = null;
-        let pageFlip = null;
-        let totalPages = 0;
-        let pdfPages = [];
-        let activeRenderTasks = {};
-        
-        let isMobileMode = false;
+        let totalPages = (window.EMBEDDED_PAGES && window.EMBEDDED_PAGES.length) ? window.EMBEDDED_PAGES.length : 0;
         let currentPageIndex = 0;
-
-        let fitScale = 1.0;
-        let flipbookWidth = 300;
-        let flipbookHeight = 400;
+        let isMobileMode = false;
+        let isReaderMode = false;
+        let pageFlip = null;
 
         let zoomLevel = 1.0;
         let panX = 0; let panY = 0;
         let isPanning = false; let touchStartDist = 0; let touchStartZoom = 1;
         let touchStartPan = {x:0, y:0}; let touchStartPos = {x:0, y:0};
         let lastTapTime = 0;
-
-        // In-memory JPEG page cache with Least-Recently-Used eviction policy
-        const pageCache = {};
-        const cacheOrder = [];
-        const MAX_CACHE_SIZE = 12;
-
-        function cachePageData(pageNum, canvasData) {
-            const idx = cacheOrder.indexOf(pageNum);
-            if (idx !== -1) {
-                cacheOrder.splice(idx, 1);
-            }
-            cacheOrder.push(pageNum);
-            pageCache[pageNum] = canvasData;
-
-            if (cacheOrder.length > MAX_CACHE_SIZE) {
-                const oldestPage = cacheOrder.shift();
-                delete pageCache[oldestPage];
-            }
-        }
-
-        function getCachedPage(pageNum) {
-            if (pageCache[pageNum]) {
-                const idx = cacheOrder.indexOf(pageNum);
-                if (idx !== -1) {
-                    cacheOrder.splice(idx, 1);
-                    cacheOrder.push(pageNum);
-                }
-                return pageCache[pageNum];
-            }
-            return null;
-        }
-
-        const flatChapters = []; // Flat list of all chapters & sub-topics
-        const extractedTextPages = {}; // Cache sanitized text per page index
-        let isReaderMode = false;
 
         // TTS Engine state
         let ttsSentences = [];
@@ -1414,6 +1599,16 @@ ${safePdfWorker}
         let ttsVoice = null;
         let ttsSpeed = 1.0;
         let currentSpeechSessionId = 0;
+
+        function safeSetText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.innerText = text;
+        }
+
+        function stripHtmlTags(str) {
+            if (!str) return "";
+            return str.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+        }
 
         function cancelTtsSpeech() {
             currentSpeechSessionId++;
@@ -1471,24 +1666,28 @@ ${safePdfWorker}
             return currentPageIndex;
         }
 
-        function stripHtmlTags(str) {
-            if (!str) return "";
-            return str.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-        }
-
-        async function prepareTtsForCurrentPage() {
+        function prepareTtsForCurrentPage() {
             const activePage = findActivePageOnScreen();
             if (activePage !== currentPageIndex) {
                 currentPageIndex = activePage;
             }
-            const text = await getPageSanitizedText(currentPageIndex);
-            if (!text) {
-                ttsSentences = ["No text available on page " + (currentPageIndex + 1)];
-            } else {
-                const rawMatches = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [text];
-                ttsSentences = rawMatches
-                    .map(s => stripHtmlTags(renderMathAndUnits(sanitizeText(s))))
-                    .filter(Boolean);
+            ttsSentences = [];
+
+            const cardBody = document.getElementById('reader-card-body-' + currentPageIndex) || document.getElementById('page-' + currentPageIndex);
+            if (cardBody) {
+                const sentenceSpans = cardBody.querySelectorAll('.reader-tts-sentence');
+                if (sentenceSpans && sentenceSpans.length) {
+                    sentenceSpans.forEach(span => {
+                        const txt = stripHtmlTags(span.textContent);
+                        if (txt) ttsSentences.push(txt);
+                    });
+                } else {
+                    const txt = stripHtmlTags(cardBody.textContent);
+                    if (txt) {
+                        const rawMatches = txt.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [txt];
+                        ttsSentences = rawMatches.map(s => stripHtmlTags(s)).filter(Boolean);
+                    }
+                }
             }
             if (!ttsSentences.length) {
                 ttsSentences = ["Page " + (currentPageIndex + 1)];
@@ -1518,15 +1717,6 @@ ${safePdfWorker}
                         const targetSpan = sentenceSpans[sentenceIdx];
                         targetSpan.classList.add('tts-highlight');
                         targetSpan.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                    } else {
-                        const paragraphs = cardBody.querySelectorAll('.reader-text-paragraph');
-                        if (paragraphs.length) {
-                            const targetP = paragraphs[Math.min(sentenceIdx, paragraphs.length - 1)];
-                            if (targetP) {
-                                targetP.classList.add('tts-highlight');
-                                targetP.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                            }
-                        }
                     }
                 }
             } else {
@@ -1546,7 +1736,6 @@ ${safePdfWorker}
             }
 
             if (ttsCurrentSentenceIdx >= ttsSentences.length) {
-                // Advance sequentially to next page if available
                 if (currentPageIndex < totalPages - 1) {
                     goToPage(currentPageIndex + 1);
                 } else {
@@ -1587,13 +1776,12 @@ ${safePdfWorker}
             window.speechSynthesis.speak(ttsUtterance);
         }
 
-        async function playTts() {
+        function playTts() {
             ttsPlaying = true;
             const playBtn = document.getElementById('btn-audio-play');
             if (playBtn) playBtn.textContent = '||';
 
-            // Always start reading from top of current visible page
-            await prepareTtsForCurrentPage();
+            prepareTtsForCurrentPage();
             ttsCurrentSentenceIdx = 0;
 
             if (isReaderMode) {
@@ -1640,24 +1828,22 @@ ${safePdfWorker}
             ttsCurrentSentenceIdx += dir;
             if (ttsCurrentSentenceIdx < 0) {
                 if (currentPageIndex > 0) {
-                    goToPage(currentPageIndex - 1).then(async () => {
-                        await prepareTtsForCurrentPage();
-                        ttsCurrentSentenceIdx = Math.max(0, ttsSentences.length - 1);
-                        if (ttsPlaying) speakCurrentTtsSentence();
-                        else updateAudioInfoDisplay();
-                    });
+                    goToPage(currentPageIndex - 1);
+                    prepareTtsForCurrentPage();
+                    ttsCurrentSentenceIdx = Math.max(0, ttsSentences.length - 1);
+                    if (ttsPlaying) speakCurrentTtsSentence();
+                    else updateAudioInfoDisplay();
                     return;
                 } else {
                     ttsCurrentSentenceIdx = 0;
                 }
             } else if (ttsCurrentSentenceIdx >= ttsSentences.length) {
                 if (currentPageIndex < totalPages - 1) {
-                    goToPage(currentPageIndex + 1).then(async () => {
-                        await prepareTtsForCurrentPage();
-                        ttsCurrentSentenceIdx = 0;
-                        if (ttsPlaying) speakCurrentTtsSentence();
-                        else updateAudioInfoDisplay();
-                    });
+                    goToPage(currentPageIndex + 1);
+                    prepareTtsForCurrentPage();
+                    ttsCurrentSentenceIdx = 0;
+                    if (ttsPlaying) speakCurrentTtsSentence();
+                    else updateAudioInfoDisplay();
                     return;
                 } else {
                     ttsCurrentSentenceIdx = ttsSentences.length - 1;
@@ -1672,168 +1858,79 @@ ${safePdfWorker}
             }
         }
 
-        function formatQuestionnaireText(text) {
-            if (!text || typeof text !== "string") return text || "";
+        function toggleReaderMode(enable) {
+            isReaderMode = enable !== undefined ? enable : !isReaderMode;
+            const vp = document.getElementById('flipbook-viewport');
+            const rv = document.getElementById('reader-view-container');
+            const btnReader = document.getElementById('btn-reader-mode');
 
-            try {
-                let result = text;
-
-                // 1. Format option headers (Options:, Choices:, Select:, Answers:)
-                result = result.replace(new RegExp("\\\\b(Options|Choices|Select|Answers?)\\\\s*:\\\\s*", "gi"), "\\nOptions:\\n");
-
-                const nonChoicePrefixes = new RegExp("\\\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\\\\s+$", "i");
-
-                // Separate choice markers (A., B., C., D., E., F., A), B), C), (A), (B), 1., 2., 3., 4.)
-                result = result.replace(new RegExp("(\\\\S)\\\\s+([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "g"), (match, prev, marker, offset, fullStr) => {
-                    const precedingText = fullStr.substring(Math.max(0, offset - 30), offset + prev.length);
-                    if (nonChoicePrefixes.test(precedingText)) {
-                        return match;
-                    }
-                    return prev + "\\n" + marker + " ";
-                });
-
-                // Ensure Options: header is followed by choice A on its own line
-                result = result.replace(new RegExp("(Options:)\\\\s*\\\\n?\\\\s*([A-F0-9][\\\\.\\\\)]|\\\\([A-F0-9]\\\\))\\\\s+", "gi"), "$1\\n$2 ");
-
-                // Format Rationale / Explanation / Note / Discussion headers
-                result = result.replace(new RegExp("(\\\\S)\\\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\\\s*:", "gi"), "$1\\n\\n$2:");
-
-                return result.replace(new RegExp("\\\\n{3,}", "g"), "\\n\\n").trim();
-            } catch (err) {
-                console.warn("formatQuestionnaireText error:", err);
-                return text;
+            if (isReaderMode) {
+                if (vp) vp.style.display = 'none';
+                if (rv) rv.classList.add('active');
+                if (btnReader) btnReader.style.color = '#6366F1';
+                const activeCard = document.getElementById('reader-card-' + currentPageIndex);
+                if (activeCard) {
+                    activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                }
+            } else {
+                if (rv) rv.classList.remove('active');
+                if (vp) vp.style.display = 'flex';
+                if (btnReader) btnReader.style.color = '#475569';
+                goToPage(currentPageIndex);
             }
         }
 
-        function sanitizeText(rawText) {
-            if (!rawText) return "";
-            let text = rawText;
+        function buildFlipbookDom() {
+            const container = document.getElementById('flipbook-container');
+            if (!container) return;
+            container.innerHTML = '';
+            isMobileMode = window.innerWidth < 768;
 
-            try {
-                text = text.normalize("NFKC");
-            } catch (e) {}
+            const pages = window.EMBEDDED_PAGES || [];
+            for (let i = 0; i < pages.length; i++) {
+                const d = document.createElement('div');
+                d.className = 'page-wrapper' + (isMobileMode && i === currentPageIndex ? ' active-mobile-page' : '');
+                d.id = 'page-' + i;
+                d.innerHTML = pages[i];
+                container.appendChild(d);
+            }
 
-            text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
-            text = text.replace(/(\\b\\w+)-\\s*\\n\\s*(\\w+\\b)/g, "$1$2");
-            text = text.replace(/(\\w)[\uE000-\uF8FF]+(\\w)/g, "$1$2");
-            text = text.replace(/[\uE000-\uF8FF]/g, "");
-
-            text = text.replace(/[ \t\f\v]+/g, " ");
-            text = text.replace(/ \\n/g, "\\n").replace(/\\n /g, "\\n");
-            text = text.replace(/ \\b([.,!?:;])/g, "$1");
-
-            return text.trim();
-        }
-
-        function renderMathAndUnits(text) {
-            if (!text || typeof text !== "string") return text || "";
-            let result = text;
-
-            // Un-escape double backslashes if present
-            result = result.replace(/\\\\\\\\/g, "\\\\");
-
-            // Direct KaTeX rendering if window.katex is loaded
-            if (typeof window !== "undefined" && window.katex && window.katex.renderToString) {
+            if (typeof St !== 'undefined' && St.PageFlip && !isMobileMode) {
                 try {
-                    // Display mode $$...$$
-                    result = result.replace(new RegExp("\\\\$\\\\$\\\\s*([^\\\\$]+)\\\\s*\\\\$\\\\$", "g"), (match, expr) => {
-                        try {
-                            return window.katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false });
-                        } catch(e) { return expr; }
+                    pageFlip = new St.PageFlip(container, {
+                        width: 450,
+                        height: 600,
+                        size: "stretch",
+                        minWidth: 200,
+                        maxWidth: 2000,
+                        minHeight: 300,
+                        maxHeight: 2500,
+                        drawShadow: true,
+                        maxShadowOpacity: 0.8,
+                        flippingTime: 800,
+                        useMouseEvents: true,
+                        showCover: false,
+                        usePortrait: true,
+                        startPage: currentPageIndex,
+                        clickToFlip: true
                     });
-
-                    // Inline mode $...$
-                    result = result.replace(new RegExp("\\\\$([^\\\\$]+)\\\\$", "g"), (match, expr) => {
-                        try {
-                            return window.katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false });
-                        } catch(e) { return expr; }
+                    pageFlip.loadFromHTML(document.querySelectorAll('.page-wrapper'));
+                    pageFlip.on('flip', (e) => {
+                        goToPage(e.data);
                     });
-                } catch(err) {
-                    console.warn("KaTeX render error:", err);
+                } catch(e) {
+                    console.warn("StPageFlip init warning:", e);
                 }
-            }
-
-            // Fallback string conversions for text mode & unparsed symbols
-            let prev, count = 0;
-            do {
-                prev = result;
-                result = result.replace(new RegExp("\\\\\\\\text\\\\s*\\\\{([^}]*)\\\\}", "g"), "$1");
-                count++;
-            } while (result !== prev && count < 10);
-
-            count = 0;
-            do {
-                prev = result;
-                result = result.replace(new RegExp("\\\\\\\\frac\\\\s*\\\\{([^}]*)\\\\}\\\\s*\\\\{([^}]*)\\\\}", "g"), "($1 / $2)");
-                count++;
-            } while (result !== prev && count < 10);
-
-            result = result.replace(new RegExp("\\\\\\\\times\\\\b|\\\\\\\\times", "g"), "×");
-            result = result.replace(new RegExp("\\\\\\\\div\\\\b|\\\\\\\\div", "g"), "÷");
-            result = result.replace(new RegExp("\\\\\\\\cdot\\\\b|\\\\\\\\cdot", "g"), "·");
-            result = result.replace(new RegExp("\\\\\\\\pm\\\\b|\\\\\\\\pm", "g"), "±");
-            result = result.replace(new RegExp("\\\\\\\\le(q)?\\\\b", "g"), "≤");
-            result = result.replace(new RegExp("\\\\\\\\ge(q)?\\\\b", "g"), "≥");
-            result = result.replace(new RegExp("\\\\\\\\neq\\\\b", "g"), "≠");
-            result = result.replace(new RegExp("\\\\\\\\approx\\\\b", "g"), "≈");
-            result = result.replace(new RegExp("\\\\\\\\square\\\\b|\\\\\\\\Box\\\\b", "g"), "[ ]");
-            result = result.replace(new RegExp("\\\\\\\\alpha\\\\b", "g"), "α");
-            result = result.replace(new RegExp("\\\\\\\\beta\\\\b", "g"), "β");
-            result = result.replace(new RegExp("\\\\\\\\gamma\\\\b", "g"), "γ");
-            result = result.replace(new RegExp("\\\\\\\\delta\\\\b", "g"), "δ");
-            result = result.replace(new RegExp("\\\\\\\\theta\\\\b", "g"), "θ");
-            result = result.replace(new RegExp("\\\\\\\\sigma\\\\b", "g"), "σ");
-            result = result.replace(new RegExp("\\\\\\\\mu\\\\s*g\\\\b", "g"), "mcg");
-            result = result.replace(new RegExp("\\\\\\\\mu\\\\b", "g"), "µ");
-            result = result.replace(new RegExp("\\\\\\\\%", "g"), "%");
-
-            result = result.replace(new RegExp("\\\\$", "g"), "");
-
-            // Remove ghost brackets & empty unparsed artifacts: ( ), [ ], { }
-            count = 0;
-            do {
-                prev = result;
-                result = result.replace(new RegExp("\\\\(\\\\s*\\\\)|\\\\[\\\\s*\\\\]|\\\\{\\\\s*\\\\}", "g"), "");
-                count++;
-            } while (result !== prev && count < 5);
-
-            return result.replace(/[ \t]+/g, " ").trim();
-        }
-
-        async function getPageSanitizedText(pageIdx) {
-            if (extractedTextPages[pageIdx] !== undefined) {
-                return extractedTextPages[pageIdx];
-            }
-            try {
-                const page = await pdfDoc.getPage(pageIdx + 1);
-                const textContent = await page.getTextContent();
-                let rawText = '';
-                let lastY = null;
-                for (const item of textContent.items) {
-                    if (lastY !== null && Math.abs(item.transform[5] - lastY) > 8) {
-                        rawText += '\\\\n';
-                    } else if (rawText.length > 0 && !rawText.endsWith(' ') && !rawText.endsWith('\\\\n')) {
-                        rawText += ' ';
-                    }
-                    rawText += item.str;
-                    lastY = item.transform[5];
-                }
-                const cleaned = formatQuestionnaireText(renderMathAndUnits(sanitizeText(rawText)));
-                extractedTextPages[pageIdx] = cleaned;
-                return cleaned;
-            } catch (err) {
-                console.warn('Error extracting text for page ' + (pageIdx + 1), err);
-                extractedTextPages[pageIdx] = '';
-                return '';
             }
         }
 
-        async function renderReaderView() {
+        function buildReaderDom() {
             const wrapper = document.getElementById('reader-cards-wrapper');
             if (!wrapper) return;
             wrapper.innerHTML = '';
 
-            for (let i = 0; i < totalPages; i++) {
+            const pages = window.EMBEDDED_PAGES || [];
+            for (let i = 0; i < pages.length; i++) {
                 const card = document.createElement('div');
                 card.className = 'reader-content-card';
                 card.id = 'reader-card-' + i;
@@ -1847,315 +1944,49 @@ ${safePdfWorker}
                 const body = document.createElement('div');
                 body.className = 'reader-card-body';
                 body.id = 'reader-card-body-' + i;
-                body.innerHTML = '<div style="color: #94A3B8; font-size: 13px; font-weight: 500;">Loading text...</div>';
-                card.appendChild(body);
+                
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = pages[i];
+                const textWrapper = tempDiv.querySelector('.page-text-wrapper');
+                if (textWrapper) {
+                    body.innerHTML = textWrapper.innerHTML;
+                } else {
+                    body.innerHTML = pages[i];
+                }
 
+                card.appendChild(body);
                 wrapper.appendChild(card);
             }
-
-            for (let i = 0; i < totalPages; i++) {
-                const text = await getPageSanitizedText(i);
-                const bodyEl = document.getElementById('reader-card-body-' + i);
-                if (bodyEl) {
-                    bodyEl.innerHTML = '';
-                    if (!text) {
-                        bodyEl.innerHTML = '<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(No extractable text on this page)</p>';
-                    } else {
-                        const formattedText = formatQuestionnaireText(text);
-                        const paragraphs = formattedText.split(/\\\\n+/);
-                        let globalSentenceIdx = 0;
-                        paragraphs.forEach((pText, pIdx) => {
-                            const cleanP = sanitizeText(pText);
-                            if (cleanP) {
-                                const pEl = document.createElement('p');
-                                pEl.className = 'reader-text-paragraph';
-                                pEl.id = 'reader-p-' + i + '-' + pIdx;
-
-                                const sentences = cleanP.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanP];
-                                sentences.forEach(s => {
-                                    const cleanS = renderMathAndUnits(sanitizeText(s));
-                                    if (cleanS) {
-                                        const span = document.createElement('span');
-                                        span.className = 'reader-tts-sentence';
-                                        span.dataset.sentenceIdx = globalSentenceIdx++;
-                                        span.innerHTML = cleanS + ' ';
-                                        pEl.appendChild(span);
-                                    }
-                                });
-
-                                bodyEl.appendChild(pEl);
-                            }
-                        });
-                    }
-                }
-            }
-
-            const activeCard = document.getElementById('reader-card-' + currentPageIndex);
-            if (activeCard) {
-                activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
-            }
         }
 
-        function toggleReaderMode(enable) {
-            isReaderMode = enable !== undefined ? enable : !isReaderMode;
-            const vp = document.getElementById('flipbook-viewport');
-            const rv = document.getElementById('reader-view-container');
-            const btnReader = document.getElementById('btn-reader-mode');
+        function buildDrawerGrid() {
+            const grid = document.getElementById('drawer-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
 
-            if (isReaderMode) {
-                if (vp) vp.style.display = 'none';
-                if (rv) rv.classList.add('active');
-                if (btnReader) btnReader.style.color = '#6366F1';
-                renderReaderView();
-            } else {
-                if (rv) rv.classList.remove('active');
-                if (vp) vp.style.display = 'flex';
-                if (btnReader) btnReader.style.color = '#475569';
-                goToPage(currentPageIndex);
+            const pages = window.EMBEDDED_PAGES || [];
+            for (let i = 0; i < pages.length; i++) {
+                const item = document.createElement('div');
+                item.className = 'thumb-item' + (i === currentPageIndex ? ' active' : '');
+                item.id = 'thumb-' + i;
+                item.dataset.page = i;
+
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = pages[i];
+                const img = tempDiv.querySelector('.page-img');
+                if (img) {
+                    item.appendChild(img.cloneNode(true));
+                }
+                const label = document.createElement('span');
+                label.textContent = 'Page ' + (i + 1);
+                item.appendChild(label);
+
+                item.addEventListener('click', () => {
+                    goToPage(i);
+                    toggleDrawer(false);
+                });
+                grid.appendChild(item);
             }
-        }
-
-        function safeSetText(id, text) {
-            const el = document.getElementById(id);
-            if (el) el.innerText = text;
-        }
-
-        function hideLoadingSpinner() {
-            const loadingScreenEl = document.getElementById('loading-screen');
-            if (loadingScreenEl) {
-                loadingScreenEl.style.setProperty('display', 'none', 'important');
-                loadingScreenEl.style.opacity = '0';
-            }
-        }
-
-        function forceHideLoadingScreen() {
-            hideLoadingSpinner();
-        }
-
-        function renderDirectTextFallback(message) {
-            hideLoadingSpinner();
-            toggleReaderMode(true);
-        }
-
-        async function renderDirectTextNodeForPage(pageNum) {
-            const pageEl = document.getElementById('page-' + pageNum);
-            if (pageEl) {
-                try {
-                    const text = await getPageSanitizedText(pageNum);
-                    if (text) {
-                        const htmlContent = renderMathAndUnits(text);
-                        pageEl.innerHTML = '<div style="padding: 24px; font-size:14px; color:#1E293B; height:100%; overflow-y:auto; background:#fff; text-align:left; font-family: \\\'Bookerly\\\', \\\'Georgia\\\', serif; line-height:1.8;">' + htmlContent + '</div>';
-                        return;
-                    }
-                } catch(e) {}
-                pageEl.innerHTML = '<div style="padding: 20px; font-size:14px; color:#334155; height:100%; overflow-y:auto; background:#fff; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;"><p style="font-weight:600; margin-bottom:8px;">Page ' + (pageNum + 1) + '</p><p style="font-size:12px; color:#64748B;">Text content loaded.</p></div>';
-            }
-        }
-
-        async function loadPdfWithTimeoutAndFallback(bytes, timeoutMs = 1000) {
-            if (!window.pdfjsLib) {
-                throw new Error("pdfjsLib is not loaded");
-            }
-
-            let timer;
-            const timeoutPromise = new Promise((_, reject) => {
-                timer = setTimeout(() => reject(new Error("PDF.js worker initialization timed out (" + timeoutMs + "ms limit)")), timeoutMs);
-            });
-
-            try {
-                const loadingTask = pdfjsLib.getDocument({ data: bytes });
-                const doc = await Promise.race([loadingTask.promise, timeoutPromise]);
-                clearTimeout(timer);
-                return doc;
-            } catch (err) {
-                clearTimeout(timer);
-                console.warn("PDF.js worker initialization failed or timed out, retrying in main-thread mode:", err);
-                try {
-                    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
-                        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-                    }
-                    const fallbackTask = pdfjsLib.getDocument({ data: bytes, disableWorker: true });
-                    return await fallbackTask.promise;
-                } catch (fallbackErr) {
-                    console.error("PDF.js main-thread fallback also failed:", fallbackErr);
-                    throw fallbackErr;
-                }
-            }
-        }
-
-        async function initApp() {
-            safeSetText('loading-text', 'Decoding PDF Stream...');
-
-            try {
-                // Inline worker initialization safely via Blob URL with fallback handling
-                try {
-                    const isLocalOrigin = window.location.protocol === 'file:' || window.location.protocol === 'content:' || window.location.origin === 'null';
-                    const workerEl = document.getElementById('pdf-worker-code');
-                    if (!isLocalOrigin && workerEl && workerEl.textContent && workerEl.textContent.trim()) {
-                        const blob = new Blob([workerEl.textContent], { type: 'text/javascript' });
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
-                    } else {
-                        if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
-                            pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-                        }
-                    }
-                } catch(e) {
-                    console.warn("Worker setup warning (falling back to main thread worker):", e);
-                    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-                    }
-                }
-
-                // Decode raw PDF Base64 safely to Uint8Array
-                const binaryString = atob(PDF_B64);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-
-                try {
-                    pdfDoc = await loadPdfWithTimeoutAndFallback(bytes, 1000);
-                    totalPages = pdfDoc ? pdfDoc.numPages : 0;
-                } catch(pdfErr) {
-                    console.error("PDF.js failed to initialize within 1 second:", pdfErr);
-                    renderDirectTextFallback("Could not initialize PDF renderer. Parsing content in text fallback mode.");
-                    return;
-                }
-
-                if (!pdfDoc || totalPages <= 0) {
-                    renderDirectTextFallback("Document contains no renderable pages.");
-                    return;
-                }
-
-                safeSetText('page-total', '/ ' + totalPages);
-                const pageInputEl = document.getElementById('page-input');
-                if (pageInputEl) pageInputEl.max = totalPages;
-
-                // Auto-Restore Last Read Page Location immediately
-                const saved = localStorage.getItem(STORAGE_KEY);
-                if (saved) {
-                    const savedIdx = parseInt(saved, 10);
-                    if (savedIdx >= 0 && savedIdx < totalPages) {
-                        currentPageIndex = savedIdx;
-                    }
-                }
-                
-                // Fast path: setup book structure and event handlers
-                await initBook();
-                setupEvents();
-                buildDrawerGrid();
-
-                // 1. INSTANT FIRST PAGE DISPLAY
-                // Render initial active page first for instant display
-                try {
-                    await renderPage(currentPageIndex);
-                } catch(renderErr) {
-                    console.warn("Initial page render warning, using direct text node fallback for page:", renderErr);
-                    renderDirectTextNodeForPage(currentPageIndex);
-                }
-
-                // Set up viewer state for active page
-                goToPage(currentPageIndex);
-
-                // 2. BACKGROUND ASYNCHRONOUS PROCESSING (DEFERRED TASKS)
-                const runBackgroundTasks = () => {
-                    initChaptersOutline().catch(err => console.warn("Background outline extraction error:", err));
-                    initTtsVoices();
-                    prepareTtsForCurrentPage().catch(err => console.warn("Background TTS prep error:", err));
-                };
-
-                if ('requestIdleCallback' in window) {
-                    requestIdleCallback(() => runBackgroundTasks(), { timeout: 2000 });
-                } else {
-                    setTimeout(runBackgroundTasks, 50);
-                }
-
-            } catch (err) {
-                console.error("PDF Initialization Error:", err);
-                renderDirectTextFallback("Error loading document: " + (err.message || err));
-            } finally {
-                hideLoadingSpinner();
-            }
-        }
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                setTimeout(hideLoadingSpinner, 3000);
-                initApp();
-            });
-        } else {
-            setTimeout(hideLoadingSpinner, 3000);
-            initApp();
-        }
-
-        async function resolveDest(dest) {
-            if (!dest) return null;
-            try {
-                if (typeof dest === 'string') {
-                    const resolved = await pdfDoc.getDestination(dest);
-                    return await resolveDest(resolved);
-                } else if (Array.isArray(dest)) {
-                    const destRef = dest[0];
-                    if (destRef && typeof destRef === 'object') {
-                        return await pdfDoc.getPageIndex(destRef);
-                    }
-                }
-            } catch (err) {
-                console.warn("Destination resolution failed:", err);
-            }
-            return null;
-        }
-
-        async function parseOutlineRecursive(items, depth = 0) {
-            const parsedList = [];
-            for (const item of items) {
-                let pageIdx = null;
-                if (item.dest) {
-                    pageIdx = await resolveDest(item.dest);
-                }
-                const parsed = {
-                    title: item.title || "Untitled Topic",
-                    pageIndex: pageIdx,
-                    depth: depth,
-                    items: []
-                };
-                if (pageIdx !== null) {
-                    flatChapters.push(parsed);
-                }
-                if (item.items && item.items.length > 0) {
-                    parsed.items = await parseOutlineRecursive(item.items, depth + 1);
-                }
-                parsedList.push(parsed);
-            }
-            return parsedList;
-        }
-
-        async function initChaptersOutline() {
-            let outline = null;
-            try {
-                outline = await pdfDoc.getOutline();
-            } catch (err) {
-                console.warn("Could not retrieve bookmarks/outline", err);
-            }
-
-            let parsedOutline = [];
-            if (outline && outline.length > 0) {
-                parsedOutline = await parseOutlineRecursive(outline, 0);
-            } else {
-                // Generates fallbacks structure for every 10 pages if PDF outline is absent
-                const interval = Math.max(1, Math.floor(totalPages / 10));
-                for (let i = 0; i < totalPages; i += interval) {
-                    const item = {
-                        title: \`Section starting at Page \${i + 1}\`,
-                        pageIndex: i,
-                        depth: 0,
-                        items: []
-                    };
-                    parsedOutline.push(item);
-                    flatChapters.push(item);
-                }
-            }
-
-            buildChaptersDrawer(parsedOutline);
         }
 
         function buildChaptersDrawer(outlineItems) {
@@ -2164,13 +1995,13 @@ ${safePdfWorker}
             listContainer.innerHTML = '';
 
             function renderChaptersRecursive(items) {
+                if (!items || !items.length) return;
                 items.forEach(item => {
                     const row = document.createElement('div');
-                    row.className = \`chapter-item\`;
+                    row.className = 'chapter-item';
                     row.id = 'chapter-row-' + item.pageIndex;
-                    row.style.paddingLeft = \`\${item.depth * 16 + 12}px\`;
+                    row.style.paddingLeft = (item.depth * 16 + 12) + 'px';
 
-                    // Safe string concatenation to eliminate template backtick parsing bugs inside the exporter
                     row.innerHTML = '<span class="chapter-item-title" title="' + item.title + '">' + item.title + '</span><span class="chapter-item-page">P. ' + (item.pageIndex + 1) + '</span>';
 
                     row.addEventListener('click', () => {
@@ -2187,7 +2018,11 @@ ${safePdfWorker}
             renderChaptersRecursive(outlineItems);
         }
 
-        function updateChaptersDrawerActive(idx) {
+        function updateDrawerActive(idx) {
+            document.querySelectorAll('.thumb-item').forEach((el, i) => {
+                if (i === idx) el.classList.add('active');
+                else el.classList.remove('active');
+            });
             document.querySelectorAll('.chapter-item').forEach(el => {
                 el.classList.remove('active');
             });
@@ -2195,7 +2030,30 @@ ${safePdfWorker}
             if (activeRow) activeRow.classList.add('active');
         }
 
-        async function animateMobilePageFlip(oldIdx, newIdx, direction) {
+        function toggleDrawer(open) {
+            const drawer = document.getElementById('thumbs-drawer');
+            if (!drawer) return;
+            const willOpen = open === undefined ? !drawer.classList.contains('open') : open;
+            if (willOpen) {
+                drawer.classList.add('open');
+                toggleChaptersDrawer(false);
+            } else {
+                drawer.classList.remove('open');
+            }
+        }
+
+        function toggleChaptersDrawer(open) {
+            const drawer = document.getElementById('chapters-drawer');
+            if (!drawer) return;
+            if (open === undefined) drawer.classList.toggle('open');
+            else if (open) {
+                drawer.classList.add('open');
+                toggleDrawer(false);
+            }
+            else drawer.classList.remove('open');
+        }
+
+        function animateMobilePageFlip(oldIdx, newIdx, direction) {
             const oldPage = document.getElementById('page-' + oldIdx);
             const newPage = document.getElementById('page-' + newIdx);
             if (!oldPage || !newPage) {
@@ -2221,7 +2079,7 @@ ${safePdfWorker}
                 newPage.classList.add('flip-right');
                 newPage.classList.add('active-mobile-page');
 
-                newPage.offsetHeight; // Force layout reflow
+                newPage.offsetHeight;
                 newPage.classList.remove('flip-right');
             }
 
@@ -2233,7 +2091,7 @@ ${safePdfWorker}
             }, 600);
         }
 
-        async function goToPage(p) {
+        function goToPage(p) {
             if (p < 0 || p >= totalPages) return;
             const oldIdx = currentPageIndex;
             currentPageIndex = p;
@@ -2242,15 +2100,13 @@ ${safePdfWorker}
             if (pageInputEl) pageInputEl.value = p + 1;
             localStorage.setItem(STORAGE_KEY, p);
             updateDrawerActive(p);
-            updateChaptersDrawerActive(p);
-            lazyRender(p);
 
-            prepareTtsForCurrentPage().catch(err => console.warn("Background TTS prep error:", err));
+            prepareTtsForCurrentPage();
 
             if (isMobileMode) {
                 if (oldIdx !== p) {
                     const direction = p > oldIdx ? 'next' : 'prev';
-                    await animateMobilePageFlip(oldIdx, p, direction);
+                    animateMobilePageFlip(oldIdx, p, direction);
                 } else {
                     document.querySelectorAll('.page-wrapper').forEach((el, idx) => {
                         if (idx === p) {
@@ -2262,7 +2118,7 @@ ${safePdfWorker}
                 }
             } else {
                 if (pageFlip && pageFlip.getCurrentPageIndex() !== p) {
-                    pageFlip.flip(p);
+                    try { pageFlip.flip(p); } catch(e) {}
                 }
             }
 
@@ -2278,469 +2134,13 @@ ${safePdfWorker}
             }
         }
 
-        async function initBook() {
-            const vp = document.getElementById('flipbook-viewport');
-            const container = document.getElementById('flipbook-container');
-            if (!vp || !container) return;
-
-            container.innerHTML = '';
-            pdfPages = new Array(totalPages).fill(null);
-            isMobileMode = window.innerWidth < 768;
-            
-            const p1 = await pdfDoc.getPage(1);
-            
-            // Fetch native PDF page dimensions
-            const pdfPageWidth = p1.view[2] - p1.view[0];
-            const pdfPageHeight = p1.view[3] - p1.view[1];
-            
-            // Calculate available viewport dimensions
-            const topBarHeight = 50;
-            const availWidth = window.innerWidth;
-            const availHeight = window.innerHeight - topBarHeight;
-            
-            // Calculate fit-to-screen scale factor
-            const scaleX = availWidth / pdfPageWidth;
-            const scaleY = availHeight / pdfPageHeight;
-            fitScale = Math.min(scaleX, scaleY);
-            
-            flipbookWidth = Math.floor(pdfPageWidth * fitScale);
-            flipbookHeight = Math.floor(pdfPageHeight * fitScale);
-            
-            for (let i = 0; i < totalPages; i++) {
-                const d = document.createElement('div');
-                d.className = 'page-wrapper';
-                d.id = 'page-' + i;
-                if (!isMobileMode) {
-                    d.style.width = flipbookWidth + 'px';
-                    d.style.height = flipbookHeight + 'px';
-                }
-                d.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
-                container.appendChild(d);
-            }
-            
-            if (pageFlip) {
-                try { pageFlip.destroy(); } catch(err) {}
-                pageFlip = null;
-            }
-            
-            if (!isMobileMode) {
-                pageFlip = new St.PageFlip(container, {
-                    width: flipbookWidth,
-                    height: flipbookHeight,
-                    size: "fixed",
-                    minWidth: 200,
-                    maxWidth: 2000,
-                    minHeight: 300,
-                    maxHeight: 2500,
-                    drawShadow: true,
-                    maxShadowOpacity: 0.8,
-                    flippingTime: 800,
-                    useMouseEvents: true,
-                    showCover: false,
-                    usePortrait: true, // Forces 1-page mode
-                    startPage: currentPageIndex,
-                    autoSize: false,
-                    mobileScrollSupport: false,
-                    clickToFlip: true
-                });
-
-                pageFlip.loadFromHTML(document.querySelectorAll('.page-wrapper'));
-
-                pageFlip.on('flip', (e) => {
-                    const p = e.data;
-                    goToPage(p);
-                });
-            }
-        }
-
-        async function renderPage(pageNum) {
-            if (pageNum < 0 || pageNum >= totalPages) return;
-            if (pdfPages[pageNum] === 'done' || pdfPages[pageNum] === 'rendering') return;
-            pdfPages[pageNum] = 'rendering';
-            
-            try {
-                // Paint instantly from high-efficiency memory cache if available
-                const cached = getCachedPage(pageNum);
-                if (cached) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = cached.width;
-                    canvas.height = cached.height;
-                    canvas.style.width = '100%';
-                    canvas.style.height = '100%';
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(cached.image, 0, 0);
-
-                    const el = document.getElementById('page-' + pageNum);
-                    if (el) {
-                        el.innerHTML = '';
-                        el.appendChild(canvas);
-                    }
-                    pdfPages[pageNum] = 'done';
-                    return;
-                }
-
-                const page = await pdfDoc.getPage(pageNum + 1);
-                const viewport = page.getViewport({ scale: 1.0 });
-
-                // SMART CONTENT BOUNDING-BOX DETECTION
-                let minX = viewport.width;
-                let minY = viewport.height;
-                let maxX = 0;
-                let maxY = 0;
-                let hasText = false;
-
-                try {
-                    const textContent = await page.getTextContent();
-                    textContent.items.forEach(item => {
-                        const textStr = item.str || '';
-                        if (!textStr.trim()) return;
-
-                        const tx = item.transform[4];
-                        const ty = item.transform[5];
-                        const [vx, vy] = viewport.convertToViewportPoint(tx, ty);
-
-                        const itemWidth = item.width || 0;
-                        const itemHeight = item.height || 0;
-                        const [vrx, vby] = viewport.convertToViewportPoint(tx + itemWidth, ty + itemHeight);
-
-                        // --- OUTLIER TEXT FILTERING (IGNORE ISOLATED EDGE PAGE NUMBERS) ---
-                        const item_minX = Math.min(vx, vrx);
-                        const item_maxX = Math.max(vx, vrx);
-                        const leftMarginBound = viewport.width * 0.08;
-                        const rightMarginBound = viewport.width * 0.92;
-                        const isAtLeftMargin = item_maxX < leftMarginBound;
-                        const isAtRightMargin = item_minX > rightMarginBound;
-
-                        if ((isAtLeftMargin || isAtRightMargin) && textStr.trim().length < 20) {
-                            return; // Ignore standalone page numbers / minor running heads in outer 8% margins
-                        }
-
-                        minX = Math.min(minX, vx, vrx);
-                        minY = Math.min(minY, vy, vby);
-                        maxX = Math.max(maxX, vx, vrx);
-                        maxY = Math.max(maxY, vy, vby);
-                        hasText = true;
-                    });
-                } catch(boxErr) {
-                    console.warn("Bounding box analysis error:", boxErr);
-                }
-
-                // --- IMAGE & DIAGRAM PRESERVATION GUARDRAIL ---
-                let hasImage = false;
-                let hasMarginGraphics = false;
-
-                try {
-                    const opList = await page.getOperatorList();
-                    const OPS = pdfjsLib.OPS || {};
-                    const imageOps = [
-                        OPS.paintImageXObject,
-                        OPS.paintInlineImageXObject,
-                        OPS.paintJpegXObject,
-                        OPS.paintImageMaskXObject
-                    ].filter(op => op !== undefined);
-
-                    for (let k = 0; k < opList.fnArray.length; k++) {
-                        const fn = opList.fnArray[k];
-                        if (imageOps.includes(fn)) {
-                            hasImage = true;
-                        }
-                        if (fn === OPS.constructPath) {
-                            const args = opList.argsArray[k];
-                            if (args && args[1] && args[1].length >= 2) {
-                                const coords = args[1];
-                                for (let j = 0; j < coords.length - 1; j += 2) {
-                                    const tx = coords[j];
-                                    const ty = coords[j+1];
-                                    if (typeof tx === 'number' && typeof ty === 'number' && !isNaN(tx) && !isNaN(ty)) {
-                                        const [vx, vy] = viewport.convertToViewportPoint(tx, ty);
-                                        if (vx < viewport.width * 0.08 || vx > viewport.width * 0.92) {
-                                            hasMarginGraphics = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (opErr) {
-                    console.warn("Operator list parsing failed:", opErr);
-                }
-
-                if (hasImage || hasMarginGraphics) {
-                    minX = 0;
-                    minY = 0;
-                    maxX = viewport.width;
-                    maxY = viewport.height;
-                } else {
-                    // Fallback if no text, or tiny/invalid box
-                    if (!hasText || (maxX - minX < 50) || (maxY - minY < 50)) {
-                        minX = 0;
-                        minY = 0;
-                        maxX = viewport.width;
-                        maxY = viewport.height;
-                    }
-
-                    // Add horizontal (12px) and vertical (40px safety buffer) padding margins
-                    const paddingX = 12;
-                    const paddingY = 40;
-                    minX = Math.max(0, minX - paddingX);
-                    minY = Math.max(0, minY - paddingY);
-                    maxX = Math.min(viewport.width, maxX + paddingX);
-                    maxY = Math.min(viewport.height, maxY + paddingY);
-                }
-
-                const croppedWidth = maxX - minX;
-                const croppedHeight = maxY - minY;
-
-                const dpr = window.devicePixelRatio || 1;
-                const canvas = document.createElement('canvas');
-
-                if (isMobileMode) {
-                    // Fit-to-screen scale factor based on cropped content bounds
-                    const topBarHeight = 50;
-                    const availWidth = window.innerWidth;
-                    const availHeight = window.innerHeight - topBarHeight;
-
-                    const scaleX = availWidth / croppedWidth;
-                    const scaleY = availHeight / croppedHeight;
-                    const renderScale = Math.min(scaleX, scaleY); // Strict proportional aspect-ratio fit scale
-
-                    // 1. Render FULL page onto off-screen temporary canvas at high DPI scaled correctly
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = Math.floor(viewport.width * renderScale * dpr);
-                    tempCanvas.height = Math.floor(viewport.height * renderScale * dpr);
-
-                    const tempCtx = tempCanvas.getContext('2d', { alpha: false });
-                    const tempRenderContext = {
-                        canvasContext: tempCtx,
-                        viewport: page.getViewport({ scale: renderScale * dpr }) // Directly DPR-scaled viewport
-                    };
-                    const renderTaskTemp = page.render(tempRenderContext);
-                    activeRenderTasks[pageNum] = renderTaskTemp;
-                    await renderTaskTemp.promise;
-                    delete activeRenderTasks[pageNum];
-
-                    // 2. Prepare final on-screen cropped canvas
-                    canvas.width = Math.floor(croppedWidth * renderScale * dpr);
-                    canvas.height = Math.floor(croppedHeight * renderScale * dpr);
-                    canvas.style.width = '100%';
-                    canvas.style.height = '100%';
-
-                    const ctx = canvas.getContext('2d', { alpha: false });
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                    // Copy only the cropped portion from tempCanvas to final canvas!
-                    ctx.drawImage(
-                        tempCanvas,
-                        Math.floor(minX * renderScale * dpr),
-                        Math.floor(minY * renderScale * dpr),
-                        Math.floor(croppedWidth * renderScale * dpr),
-                        Math.floor(croppedHeight * renderScale * dpr),
-                        0,
-                        0,
-                        canvas.width,
-                        canvas.height
-                    );
-                } else {
-                    const renderScale = fitScale;
-                    canvas.width = Math.floor(viewport.width * renderScale * dpr);
-                    canvas.height = Math.floor(viewport.height * renderScale * dpr);
-                    canvas.style.width = '100%';
-                    canvas.style.height = '100%';
-
-                    const ctx = canvas.getContext('2d', { alpha: false });
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                    const renderContext = {
-                        canvasContext: ctx,
-                        viewport: page.getViewport({ scale: renderScale * dpr }) // Scaled by DPR directly for desktop too
-                    };
-                    const renderTaskDesktop = page.render(renderContext);
-                    activeRenderTasks[pageNum] = renderTaskDesktop;
-                    await renderTaskDesktop.promise;
-                    delete activeRenderTasks[pageNum];
-                }
-                
-                // Cache the fully rendered canvas as high-efficiency Image object
-                try {
-                    const img = new Image();
-                    img.src = canvas.toDataURL('image/jpeg', 0.85);
-                    await new Promise(r => img.onload = r);
-                    cachePageData(pageNum, {
-                        image: img,
-                        width: canvas.width,
-                        height: canvas.height
-                    });
-                } catch(e) {
-                    console.warn("Page image cache creation failed", e);
-                }
-
-                const el = document.getElementById('page-' + pageNum);
-                if (el) {
-                    el.innerHTML = '';
-                    el.appendChild(canvas);
-                }
-                pdfPages[pageNum] = 'done';
-            } catch(err) {
-                console.error("Page Render Failure:", pageNum, err);
-                if (activeRenderTasks[pageNum]) {
-                    delete activeRenderTasks[pageNum];
-                }
-                pdfPages[pageNum] = 'done';
-                renderDirectTextNodeForPage(pageNum);
-            }
-        }
-
-        function lazyRender(currentIdx) {
-            // VIEWPORT MEMORY VIRTUALIZATION: Keep Current Page ± 2 (Current Page ± 2 Buffer)
-            const activePages = new Set();
-            for (let offset = -2; offset <= 2; offset++) {
-                const targetIdx = currentIdx + offset;
-                if (targetIdx >= 0 && targetIdx < totalPages) {
-                    activePages.add(targetIdx);
-                }
-            }
-            
-            // Purge off-screen canvas contexts outside Current Page ± 2 to free VRAM/memory
-            for (let i = 0; i < totalPages; i++) {
-                if (!activePages.has(i)) {
-                    if (pdfPages[i] === 'done') {
-                        pdfPages[i] = null; // Eligible to re-render
-                        const el = document.getElementById('page-' + i);
-                        if (el) {
-                            el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
-                        }
-                    } else if (pdfPages[i] === 'rendering') {
-                        if (activeRenderTasks[i]) {
-                            try { activeRenderTasks[i].cancel(); } catch(e) {}
-                            delete activeRenderTasks[i];
-                        }
-                        pdfPages[i] = null;
-                        const el = document.getElementById('page-' + i);
-                        if (el) {
-                            el.innerHTML = '<div class="page-loading"><div class="page-loading-spinner"></div><span>Rendering Page ' + (i+1) + '</span></div>';
-                        }
-                    }
-                }
-            }
-
-            // Pre-render pages within the Current Page ± 2 buffer
-            activePages.forEach(p => {
-                if (!pdfPages[p]) renderPage(p);
-            });
-        }
-
-        let loadedThumbnails = {};
-        let thumbObserver = null;
-
-        async function renderThumbnail(pageIdx, thumbEl) {
-            if (loadedThumbnails[pageIdx] || !pdfDoc) return;
-            loadedThumbnails[pageIdx] = true;
-            try {
-                const page = await pdfDoc.getPage(pageIdx + 1);
-                const viewport = page.getViewport({ scale: 0.2 });
-                const canvas = document.createElement('canvas');
-                canvas.width = Math.floor(viewport.width);
-                canvas.height = Math.floor(viewport.height);
-                canvas.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
-                const ctx = canvas.getContext('2d', { alpha: false });
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-                if (thumbEl) {
-                    thumbEl.innerHTML = '';
-                    thumbEl.appendChild(canvas);
-                    const label = document.createElement('span');
-                    label.style.cssText = 'font-size:10px;font-weight:700;margin-top:2px;color:#64748B;';
-                    label.textContent = 'P. ' + (pageIdx + 1);
-                    thumbEl.appendChild(label);
-                }
-            } catch (e) {
-                console.warn("Thumbnail render failed for page " + (pageIdx + 1), e);
-            }
-        }
-
-        function buildDrawerGrid() {
-            const grid = document.getElementById('drawer-grid');
-            if (!grid) return;
-            grid.innerHTML = '';
-
-            if (thumbObserver) {
-                try { thumbObserver.disconnect(); } catch(e) {}
-            }
-
-            thumbObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const pageIdx = parseInt(entry.target.dataset.page, 10);
-                        if (!isNaN(pageIdx)) {
-                            renderThumbnail(pageIdx, entry.target);
-                        }
-                    }
-                });
-            }, { root: document.getElementById('thumbs-drawer'), rootMargin: '50px' });
-
-            for (let i = 0; i < totalPages; i++) {
-                const item = document.createElement('div');
-                item.className = 'thumb-item' + (i === currentPageIndex ? ' active' : '');
-                item.id = 'thumb-' + i;
-                item.dataset.page = i;
-                item.innerHTML = '<span>Page ' + (i + 1) + '</span>';
-                item.addEventListener('click', () => {
-                    goToPage(i);
-                    toggleDrawer(false);
-                });
-                grid.appendChild(item);
-                thumbObserver.observe(item);
-            }
-        }
-
-        function updateDrawerActive(idx) {
-            document.querySelectorAll('.thumb-item').forEach((el, i) => {
-                if (i === idx) el.classList.add('active');
-                else el.classList.remove('active');
-            });
-        }
-
-        function toggleDrawer(open) {
-            const drawer = document.getElementById('thumbs-drawer');
-            if (!drawer) return;
-            const willOpen = open === undefined ? !drawer.classList.contains('open') : open;
-            if (willOpen) {
-                drawer.classList.add('open');
-                toggleChaptersDrawer(false); // Mutual exclusion
-            } else {
-                drawer.classList.remove('open');
-            }
-        }
-
-        function toggleChaptersDrawer(open) {
-            const drawer = document.getElementById('chapters-drawer');
-            if (!drawer) return;
-            if (open === undefined) drawer.classList.toggle('open');
-            else if (open) {
-                drawer.classList.add('open');
-                toggleDrawer(false); // Mutual exclusion
-            }
-            else drawer.classList.remove('open');
-        }
-
         function setupEvents() {
             const btnPrev = document.getElementById('btn-prev');
-            if (btnPrev) {
-                btnPrev.addEventListener('click', () => {
-                    goToPage(currentPageIndex - 1);
-                });
-            }
+            if (btnPrev) btnPrev.addEventListener('click', () => goToPage(currentPageIndex - 1));
 
             const btnNext = document.getElementById('btn-next');
-            if (btnNext) {
-                btnNext.addEventListener('click', () => {
-                    goToPage(currentPageIndex + 1);
-                });
-            }
-            
+            if (btnNext) btnNext.addEventListener('click', () => goToPage(currentPageIndex + 1));
+
             const btnThumbs = document.getElementById('btn-thumbs');
             if (btnThumbs) btnThumbs.addEventListener('click', () => toggleDrawer());
 
@@ -2756,7 +2156,6 @@ ${safePdfWorker}
             const btnReaderMode = document.getElementById('btn-reader-mode');
             if (btnReaderMode) btnReaderMode.addEventListener('click', () => toggleReaderMode());
 
-            // TTS Toolbar Controls
             const btnAudioPlay = document.getElementById('btn-audio-play');
             if (btnAudioPlay) btnAudioPlay.addEventListener('click', () => toggleTtsPlayPause());
 
@@ -2770,12 +2169,10 @@ ${safePdfWorker}
             if (speedSelect) {
                 speedSelect.addEventListener('change', (e) => {
                     ttsSpeed = parseFloat(e.target.value) || 1.0;
-                    if (ttsPlaying) {
-                        speakCurrentTtsSentence();
-                    }
+                    if (ttsPlaying) speakCurrentTtsSentence();
                 });
             }
-            
+
             const pageInput = document.getElementById('page-input');
             if (pageInput) {
                 pageInput.addEventListener('change', (e) => {
@@ -2785,7 +2182,7 @@ ${safePdfWorker}
                     }
                 });
             }
-            
+
             const btnFullscreen = document.getElementById('btn-fullscreen');
             if (btnFullscreen) {
                 btnFullscreen.addEventListener('click', () => {
@@ -2793,8 +2190,7 @@ ${safePdfWorker}
                     else document.exitFullscreen();
                 });
             }
-            
-            // Search Input Autocomplete & Enter key Validation
+
             const searchInput = document.getElementById('search-input');
             const suggestionsDropdown = document.getElementById('search-suggestions');
             const searchClearBtn = document.getElementById('search-clear-btn');
@@ -2802,11 +2198,8 @@ ${safePdfWorker}
             if (searchInput && suggestionsDropdown) {
                 const updateClearBtnVisibility = () => {
                     if (searchClearBtn) {
-                        if (searchInput.value.length > 0) {
-                            searchClearBtn.classList.remove('hidden');
-                        } else {
-                            searchClearBtn.classList.add('hidden');
-                        }
+                        if (searchInput.value.length > 0) searchClearBtn.classList.remove('hidden');
+                        else searchClearBtn.classList.add('hidden');
                     }
                 };
 
@@ -2819,18 +2212,16 @@ ${safePdfWorker}
                     }
 
                     const suggestions = [];
-
-                    // 1. If direct page match
                     const pageNum = parseInt(query, 10);
                     if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
                         suggestions.push({
-                            title: \`Go to Page \${pageNum}\`,
+                            title: 'Go to Page ' + pageNum,
                             pageIndex: pageNum - 1
                         });
                     }
 
-                    // 2. Filter chapters list matching string
-                    const matches = flatChapters.filter(ch => ch.title.toLowerCase().includes(query));
+                    const flatChaptersList = window.FLAT_CHAPTERS || [];
+                    const matches = flatChaptersList.filter(ch => ch.title.toLowerCase().includes(query));
                     matches.slice(0, 8).forEach(ch => {
                         suggestions.push({
                             title: ch.title,
@@ -2843,10 +2234,7 @@ ${safePdfWorker}
                         suggestions.forEach(s => {
                             const item = document.createElement('div');
                             item.className = 'suggestion-item';
-
-                            // Safe single quotes concatenation to eliminate template backtick parsing bugs inside the exporter
                             item.innerHTML = '<span class="suggestion-title">' + s.title + '</span><span class="page-num">P. ' + (s.pageIndex + 1) + '</span>';
-
                             item.addEventListener('click', () => {
                                 goToPage(s.pageIndex);
                                 searchInput.value = '';
@@ -2870,15 +2258,12 @@ ${safePdfWorker}
                         suggestionsDropdown.classList.add('hidden');
                     };
                     searchClearBtn.addEventListener('click', clearAction);
-                    searchClearBtn.addEventListener('pointerdown', clearAction);
                 }
 
                 searchInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
                         const query = searchInput.value.trim();
                         if (!query) return;
-
-                        // Direct page number match
                         const pageNum = parseInt(query, 10);
                         if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
                             goToPage(pageNum - 1);
@@ -2887,9 +2272,8 @@ ${safePdfWorker}
                             suggestionsDropdown.classList.add('hidden');
                             return;
                         }
-
-                        // Chapter title match
-                        const matches = flatChapters.filter(ch => ch.title.toLowerCase().includes(query.toLowerCase()));
+                        const flatChaptersList = window.FLAT_CHAPTERS || [];
+                        const matches = flatChaptersList.filter(ch => ch.title.toLowerCase().includes(query.toLowerCase()));
                         if (matches.length > 0) {
                             goToPage(matches[0].pageIndex);
                             searchInput.value = '';
@@ -2899,98 +2283,122 @@ ${safePdfWorker}
                     }
                 });
 
-                const dismissDropdown = (e) => {
+                document.addEventListener('click', (e) => {
                     const searchContainer = document.querySelector('.search-container');
                     if (searchContainer && !searchContainer.contains(e.target)) {
                         suggestionsDropdown.classList.add('hidden');
                     }
-                };
-                document.addEventListener('click', dismissDropdown);
-                document.addEventListener('pointerdown', dismissDropdown);
+                });
             }
 
             const vp = document.getElementById('flipbook-viewport');
             const stage = document.getElementById('zoom-stage');
-            if (!vp || !stage) return;
-
-            function updateTransform() {
-                if (zoomLevel <= 1.01) {
-                    zoomLevel = 1.0; panX = 0; panY = 0;
-                    stage.style.transform = 'none';
-                    stage.style.cursor = 'default';
-                } else {
-                    const maxPx = (vp.clientWidth * (zoomLevel - 1)) / 2;
-                    const maxPy = (vp.clientHeight * (zoomLevel - 1)) / 2;
-                    panX = Math.max(-maxPx, Math.min(maxPx, panX));
-                    panY = Math.max(-maxPy, Math.min(maxPy, panY));
-                    stage.style.transform = 'translate3d(' + panX + 'px, ' + panY + 'px, 0px) scale(' + zoomLevel + ')';
-                    stage.style.cursor = 'grab';
+            if (vp && stage) {
+                function updateTransform() {
+                    if (zoomLevel <= 1.01) {
+                        zoomLevel = 1.0; panX = 0; panY = 0;
+                        stage.style.transform = 'none';
+                        stage.style.cursor = 'default';
+                    } else {
+                        const maxPx = (vp.clientWidth * (zoomLevel - 1)) / 2;
+                        const maxPy = (vp.clientHeight * (zoomLevel - 1)) / 2;
+                        panX = Math.max(-maxPx, Math.min(maxPx, panX));
+                        panY = Math.max(-maxPy, Math.min(maxPy, panY));
+                        stage.style.transform = 'translate3d(' + panX + 'px, ' + panY + 'px, 0px) scale(' + zoomLevel + ')';
+                        stage.style.cursor = 'grab';
+                    }
                 }
-            }
-            
-            function getTouchDist(t1, t2) {
-                const dx = t1.clientX - t2.clientX;
-                const dy = t1.clientY - t2.clientY;
-                return Math.sqrt(dx*dx + dy*dy);
-            }
-            
-            // Touch, Pinch-to-Zoom Controls & Swipe Gestures
-            let touchStartX = 0;
-            let touchStartY = 0;
-            vp.addEventListener('touchstart', e => {
-                if (e.touches.length === 2) {
-                    touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
-                    touchStartZoom = zoomLevel;
-                    isPanning = false;
-                } else if (e.touches.length === 1) {
-                    touchStartX = e.touches[0].clientX;
-                    touchStartY = e.touches[0].clientY;
-                    const now = Date.now();
-                    if (now - lastTapTime < 300) {
-                        e.preventDefault();
-                        if (zoomLevel > 1.05) {
-                            zoomLevel = 1.0;
-                        } else {
-                            zoomLevel = 2.0;
-                            const rect = vp.getBoundingClientRect();
-                            const tapX = e.touches[0].clientX - rect.left - rect.width / 2;
-                            const tapY = e.touches[0].clientY - rect.top - rect.height / 2;
-                            panX = -tapX * 0.5;
-                            panY = -tapY * 0.5;
+
+                function getTouchDist(t1, t2) {
+                    const dx = t1.clientX - t2.clientX;
+                    const dy = t1.clientY - t2.clientY;
+                    return Math.sqrt(dx*dx + dy*dy);
+                }
+
+                let touchStartX = 0;
+                let touchStartY = 0;
+                vp.addEventListener('touchstart', e => {
+                    if (e.touches.length === 2) {
+                        touchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+                        touchStartZoom = zoomLevel;
+                        isPanning = false;
+                    } else if (e.touches.length === 1) {
+                        touchStartX = e.touches[0].clientX;
+                        touchStartY = e.touches[0].clientY;
+                        const now = Date.now();
+                        if (now - lastTapTime < 300) {
+                            e.preventDefault();
+                            if (zoomLevel > 1.05) {
+                                zoomLevel = 1.0;
+                            } else {
+                                zoomLevel = 2.0;
+                                const rect = vp.getBoundingClientRect();
+                                const tapX = e.touches[0].clientX - rect.left - rect.width / 2;
+                                const tapY = e.touches[0].clientY - rect.top - rect.height / 2;
+                                panX = -tapX * 0.5;
+                                panY = -tapY * 0.5;
+                            }
+                            updateTransform();
+                            lastTapTime = 0;
+                            return;
                         }
-                        updateTransform();
-                        lastTapTime = 0;
-                        return;
+                        lastTapTime = now;
+                        if (zoomLevel > 1.01) {
+                            isPanning = true;
+                            touchStartPos = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+                            touchStartPan = {x: panX, y: panY};
+                        }
                     }
-                    lastTapTime = now;
-                    if (zoomLevel > 1.01) {
-                        isPanning = true;
-                        touchStartPos = {x: e.touches[0].clientX, y: e.touches[0].clientY};
-                        touchStartPan = {x: panX, y: panY};
-                    }
-                }
-            }, {passive: false});
-            
-            vp.addEventListener('touchmove', e => {
-                if (e.touches.length === 2 && touchStartDist > 0) {
-                    e.preventDefault();
-                    const dist = getTouchDist(e.touches[0], e.touches[1]);
-                    zoomLevel = Math.max(1.0, Math.min(3.5, touchStartZoom * (dist / touchStartDist)));
-                    updateTransform();
-                } else if (e.touches.length === 1 && isPanning && zoomLevel > 1.01) {
-                    e.preventDefault();
-                    panX = touchStartPan.x + (e.touches[0].clientX - touchStartPos.x);
-                    panY = touchStartPan.y + (e.touches[0].clientY - touchStartPos.y);
-                    updateTransform();
-                }
-            }, {passive: false});
+                }, {passive: false});
 
-            // Reader View Pinch-to-Zoom Smart Auto-Reflow Controls
+                vp.addEventListener('touchmove', e => {
+                    if (e.touches.length === 2 && touchStartDist > 0) {
+                        e.preventDefault();
+                        const dist = getTouchDist(e.touches[0], e.touches[1]);
+                        zoomLevel = Math.max(1.0, Math.min(3.5, touchStartZoom * (dist / touchStartDist)));
+                        updateTransform();
+                    } else if (e.touches.length === 1 && isPanning && zoomLevel > 1.01) {
+                        e.preventDefault();
+                        panX = touchStartPan.x + (e.touches[0].clientX - touchStartPos.x);
+                        panY = touchStartPan.y + (e.touches[0].clientY - touchStartPos.y);
+                        updateTransform();
+                    }
+                }, {passive: false});
+
+                vp.addEventListener('touchend', e => {
+                    if (e.touches.length < 2) touchStartDist = 0;
+                    if (e.touches.length === 0) isPanning = false;
+
+                    if (isMobileMode && zoomLevel <= 1.01 && e.changedTouches.length === 1) {
+                        const deltaX = e.changedTouches[0].clientX - touchStartX;
+                        const deltaY = e.changedTouches[0].clientY - touchStartY;
+                        if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                            if (deltaX < 0) goToPage(currentPageIndex + 1);
+                            else goToPage(currentPageIndex - 1);
+                        }
+                    }
+                });
+
+                vp.addEventListener('wheel', e => {
+                    if (e.ctrlKey || zoomLevel > 1.01) {
+                        e.preventDefault();
+                        zoomLevel = Math.max(1.0, Math.min(3.5, zoomLevel + (e.deltaY < 0 ? 0.2 : -0.2)));
+                        updateTransform();
+                    }
+                }, {passive: false});
+            }
+
             const rvContainer = document.getElementById('reader-view-container');
             if (rvContainer) {
                 let readerFontSize = 17;
                 let readerStartDist = 0;
                 let readerStartFontSize = 17;
+
+                function getTouchDist(t1, t2) {
+                    const dx = t1.clientX - t2.clientX;
+                    const dy = t1.clientY - t2.clientY;
+                    return Math.sqrt(dx*dx + dy*dy);
+                }
 
                 rvContainer.addEventListener('touchstart', e => {
                     if (e.touches.length === 2) {
@@ -3022,47 +2430,50 @@ ${safePdfWorker}
                     }
                 }, { passive: false });
             }
-            
-            vp.addEventListener('touchend', e => {
-                if (e.touches.length < 2) touchStartDist = 0;
-                if (e.touches.length === 0) {
-                    isPanning = false;
-                }
 
-                // Native Mobile Swipe Detection (when not zoomed in)
-                if (isMobileMode && zoomLevel <= 1.01 && e.changedTouches.length === 1) {
-                    const deltaX = e.changedTouches[0].clientX - touchStartX;
-                    const deltaY = e.changedTouches[0].clientY - touchStartY;
-
-                    // Swipe horizontally if horizontal distance is significantly larger than vertical distance
-                    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-                        if (deltaX < 0) {
-                            goToPage(currentPageIndex + 1);
-                        } else {
-                            goToPage(currentPageIndex - 1);
-                        }
-                    }
-                }
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowLeft') goToPage(currentPageIndex - 1);
+                else if (e.key === 'ArrowRight') goToPage(currentPageIndex + 1);
             });
-            
-            vp.addEventListener('wheel', e => {
-                if (e.ctrlKey || zoomLevel > 1.01) {
-                    e.preventDefault();
-                    zoomLevel = Math.max(1.0, Math.min(3.5, zoomLevel + (e.deltaY < 0 ? 0.2 : -0.2)));
-                    updateTransform();
-                }
-            }, {passive: false});
+        }
 
-            let resizeTimer;
-            window.addEventListener('resize', () => {
-                clearTimeout(resizeTimer);
-                resizeTimer = setTimeout(() => { 
-                    const cp = currentPageIndex;
-                    initBook().then(() => {
-                        goToPage(cp);
-                    });
-                }, 200);
-            });
+        function initApp() {
+            if (!window.EMBEDDED_PAGES || !window.EMBEDDED_PAGES.length) {
+                showGlobalErrorBanner("No embedded pages found in document.");
+                hideLoadingSpinner();
+                return;
+            }
+
+            totalPages = window.EMBEDDED_PAGES.length;
+            safeSetText('page-total', '/ ' + totalPages);
+            const pageInputEl = document.getElementById('page-input');
+            if (pageInputEl) pageInputEl.max = totalPages;
+
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const savedIdx = parseInt(saved, 10);
+                if (savedIdx >= 0 && savedIdx < totalPages) {
+                    currentPageIndex = savedIdx;
+                }
+            }
+
+            buildFlipbookDom();
+            buildReaderDom();
+            buildDrawerGrid();
+            buildChaptersDrawer(window.EMBEDDED_CHAPTERS || []);
+
+            setupEvents();
+            initTtsVoices();
+
+            goToPage(currentPageIndex);
+
+            hideLoadingSpinner();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
         }
     ${scriptClose}
 </body>
