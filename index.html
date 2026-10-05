@@ -1215,28 +1215,59 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         .chapter-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
         .chapter-item-page { font-size: 10px; font-weight: 700; color: #64748B; }
 
+        /* Strict CSS Page-Break & Safe-Area Geometry Rules */
+        p, li, div.question-block, .reader-text-paragraph {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
         #reader-content, .page-container {
             width: 100% !important;
-            max-width: min(100%, 850px) !important;
+            max-width: 850px !important;
             margin: 0 auto !important;
             box-sizing: border-box !important;
-            padding: 16px 20px !important;
+            padding-top: 80px !important;
+            padding-bottom: 130px !important;
+            padding-left: 24px !important;
+            padding-right: 24px !important;
             overflow-x: hidden !important;
             word-break: break-word;
             overflow-wrap: break-word;
         }
 
-        /* Amazon Kindle-Style Continuous Reader View */
+        /* Mode A Height Containment & Hardware-Accelerated 3D Transforms */
+        #flipbook-viewport {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 180px) !important;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+            padding: 0;
+            overflow: hidden;
+            margin-top: calc(50px + var(--sat));
+            perspective: 1200px;
+            transform-style: preserve-3d;
+            will-change: transform;
+        }
+
+        /* Amazon Kindle-Style Continuous Reader View (Mode B) */
         #reader-view-container {
             position: fixed;
-            top: calc(50px + var(--sat));
-            bottom: 0;
+            top: 0;
             left: 0;
             right: 0;
+            bottom: 0;
             z-index: 40;
             background-color: #FAF6F0;
             overflow-y: auto;
-            padding: 24px 16px 110px 16px;
+            height: 100vh;
+            padding-top: 80px !important;
+            padding-bottom: 130px !important;
+            padding-left: 24px !important;
+            padding-right: 24px !important;
+            box-sizing: border-box !important;
             display: none;
             flex-direction: column;
             align-items: center;
@@ -1250,7 +1281,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         }
         .reader-content-card {
             width: 100%;
-            max-width: min(100%, 850px) !important;
+            max-width: 850px !important;
             background: #FFFFFF;
             border: 1px solid #EAE3D9;
             border-radius: 16px;
@@ -1265,6 +1296,13 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 border-radius: 12px;
             }
         }
+
+        /* Hide card headers & overlays in Mode B / Kindle Continuous Mode */
+        body.reader-mode-active .reader-page-header,
+        #reader-view-container .reader-page-header {
+            display: none !important;
+        }
+
         .reader-page-header {
             font-size: 11px;
             font-weight: 700;
@@ -1290,6 +1328,8 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             text-align: justify;
             hyphens: auto;
             -webkit-hyphens: auto;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
         }
         img, figure, table, .page-img {
             max-width: 100% !important;
@@ -1560,6 +1600,14 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         <!-- CLEAN CONTINUOUS READER MODE CONTAINER -->
         <div id="reader-view-container">
             <div id="reader-content" class="page-container" style="width: 100%; max-width: min(100%, 850px); display: flex; flex-direction: column; align-items: center; margin: 0 auto;"></div>
+        </div>
+
+        <!-- KINDLE READING PROGRESS BAR (MODE B) -->
+        <div id="kindle-progress-bar-container" style="display: none; position: fixed; bottom: calc(68px + var(--sab)); left: 50%; transform: translateX(-50%); z-index: 65; width: min(90vw, 500px); background: rgba(255,255,255,0.94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid #EAE3D9; border-radius: 20px; padding: 6px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); align-items: center; gap: 12px;">
+            <div style="flex: 1; height: 4px; background: #E2E8F0; border-radius: 2px; overflow: hidden;">
+                <div id="kindle-progress-fill" style="width: 0%; height: 100%; background: #6366F1; border-radius: 2px; transition: width 0.15s ease;"></div>
+            </div>
+            <div id="kindle-progress-text" style="font-size: 11px; font-weight: 700; color: #475569; white-space: nowrap; font-family: system-ui, -apple-system, sans-serif;">0% • Page 1 of -</div>
         </div>
 
         <!-- FLOATING BOTTOM AUDIO TOOLBAR -->
@@ -1874,24 +1922,54 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             }
         }
 
+        function updateKindleProgress() {
+            const rv = document.getElementById('reader-view-container');
+            const fill = document.getElementById('kindle-progress-fill');
+            const text = document.getElementById('kindle-progress-text');
+            if (!rv || !fill || !text) return;
+
+            const scrollTop = rv.scrollTop;
+            const scrollHeight = rv.scrollHeight - rv.clientHeight;
+            let pct = scrollHeight > 0 ? Math.round((scrollTop / scrollHeight) * 100) : 0;
+            pct = Math.max(0, Math.min(100, pct));
+
+            fill.style.width = pct + '%';
+
+            const activePage = findActivePageOnScreen();
+            text.textContent = pct + '% • Page ' + (activePage + 1) + ' of ' + totalPages;
+        }
+
         function toggleReaderMode(enable) {
             isReaderMode = enable !== undefined ? enable : !isReaderMode;
             const vp = document.getElementById('flipbook-viewport');
             const rv = document.getElementById('reader-view-container');
             const btnReader = document.getElementById('btn-reader-mode');
+            const progressBar = document.getElementById('kindle-progress-bar-container');
 
             if (isReaderMode) {
+                document.body.classList.add('reader-mode-active');
                 if (vp) vp.style.display = 'none';
                 if (rv) rv.classList.add('active');
-                if (btnReader) btnReader.style.color = '#6366F1';
+                if (progressBar) progressBar.style.display = 'flex';
+                if (btnReader) {
+                    btnReader.style.color = '#6366F1';
+                    btnReader.style.background = '#EEF2FF';
+                    btnReader.style.borderRadius = '8px';
+                }
                 const activeCard = document.getElementById('reader-card-' + currentPageIndex);
                 if (activeCard) {
                     activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
                 }
+                updateKindleProgress();
             } else {
+                document.body.classList.remove('reader-mode-active');
                 if (rv) rv.classList.remove('active');
                 if (vp) vp.style.display = 'flex';
-                if (btnReader) btnReader.style.color = '#475569';
+                if (progressBar) progressBar.style.display = 'none';
+                if (btnReader) {
+                    btnReader.style.color = '#475569';
+                    btnReader.style.background = 'transparent';
+                }
                 goToPage(currentPageIndex);
             }
         }
@@ -1952,8 +2030,10 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 card.id = 'reader-card-' + i;
                 card.dataset.page = i;
 
+                // Completely HIDE stacked card headers in continuous Mode B
                 const header = document.createElement('div');
                 header.className = 'reader-page-header';
+                header.style.display = 'none';
                 header.innerHTML = '<span>Page ' + (i + 1) + ' of ' + totalPages + '</span><span>${safeTitle}</span>';
                 card.appendChild(header);
 
@@ -2445,7 +2525,30 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                         rvContainer.style.setProperty('--reader-font-size', readerFontSize + 'px');
                     }
                 }, { passive: false });
+
+                rvContainer.addEventListener('scroll', () => {
+                    if (isReaderMode) {
+                        updateKindleProgress();
+                    }
+                });
             }
+
+            window.addEventListener('resize', () => {
+                if (!isReaderMode && pageFlip) {
+                    try { pageFlip.update(); } catch(e) {}
+                }
+            });
+
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => {
+                    if (isReaderMode) {
+                        const activeCard = document.getElementById('reader-card-' + currentPageIndex);
+                        if (activeCard) activeCard.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                    } else {
+                        goToPage(currentPageIndex);
+                    }
+                }, 200);
+            });
 
             window.addEventListener('keydown', (e) => {
                 if (e.key === 'ArrowLeft') goToPage(currentPageIndex - 1);
