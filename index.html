@@ -755,7 +755,7 @@ if (btnExport) {
                         const cleanP = sanitizeText(pText);
                         if (cleanP) {
                             pageHtml += `<p class="reader-text-paragraph">`;
-                            const sentences = cleanP.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanP];
+                            const sentences = cleanP.match(/[^.!?:]+[.!?:]+(?:\s+|$)|[^.!?:]+$/g) || [cleanP];
                             sentences.forEach(s => {
                                 const cleanS = renderMathAndUnits(sanitizeText(s));
                                 if (cleanS) {
@@ -1248,12 +1248,16 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         #flipbook-viewport {
             position: relative;
             width: 100%;
-            height: calc(100vh - (var(--top-header-height) + var(--bottom-player-height) + 40px)) !important;
+            height: calc(100dvh - 180px) !important;
             display: flex;
             justify-content: center;
             align-items: center;
             margin: 0 auto;
-            padding: 0;
+            padding-top: 80px !important;
+            padding-bottom: 140px !important;
+            padding-left: 24px !important;
+            padding-right: 24px !important;
+            box-sizing: border-box !important;
             overflow: hidden;
             margin-top: calc(var(--top-header-height) + var(--sat));
             perspective: 1200px;
@@ -1317,7 +1321,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
 
         .reader-text-paragraph {
             font-family: "Bookerly", "Georgia", "Palatino", serif;
-            font-size: clamp(0.95rem, 1rem + 0.5vw, 1.2rem) !important;
+            font-size: clamp(14px, 2.2vw, 18px) !important;
             line-height: 1.6 !important;
             color: var(--text-color);
             margin-bottom: 18px;
@@ -1448,7 +1452,12 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             .search-container { width: 140px; }
             #flipbook-viewport {
                 width: 100vw !important;
-                height: calc(100vh - (var(--top-header-height) + var(--bottom-player-height) + 40px)) !important;
+                height: calc(100dvh - 180px) !important;
+                padding-top: 80px !important;
+                padding-bottom: 140px !important;
+                padding-left: 24px !important;
+                padding-right: 24px !important;
+                box-sizing: border-box !important;
                 margin-top: calc(var(--top-header-height) + var(--sat)) !important;
                 perspective: 1500px;
                 transform-style: preserve-3d;
@@ -1643,6 +1652,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         window.EMBEDDED_CHAPTERS = ${chaptersJson};
         window.FLAT_CHAPTERS = ${flatChaptersJson};
         const STORAGE_KEY = "flipbook_pos_${safeTitleKey}";
+        const READ_POS_KEY = "reader_last_page_index";
         
         let totalPages = (window.EMBEDDED_PAGES && window.EMBEDDED_PAGES.length) ? window.EMBEDDED_PAGES.length : 0;
         let currentPageIndex = 0;
@@ -1658,11 +1668,12 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
 
         // TTS Engine state
         let ttsSentences = [];
+        let ttsSentenceElements = [];
         let ttsCurrentSentenceIdx = 0;
         let ttsPlaying = false;
         let ttsUtterance = null;
         let ttsVoice = null;
-        let ttsSpeed = 1.0;
+        let ttsSpeed = 0.95;
         let currentSpeechSessionId = 0;
 
         function safeSetText(id, text) {
@@ -1673,6 +1684,15 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         function stripHtmlTags(str) {
             if (!str) return "";
             return str.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+        }
+
+        function cleanTextForTTS(raw) {
+            if (!raw) return "";
+            let str = raw.replace(/<[^>]*>/g, " ");
+            str = str.replace(/[\{\}\[\]\<\>\(\)]/g, " ");
+            str = str.replace(/\\(?:[a-zA-Z]+|.)/g, " ");
+            str = str.replace(/\s+/g, " ").trim();
+            return str;
         }
 
         function cancelTtsSpeech() {
@@ -1692,16 +1712,16 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             const selectVoice = () => {
                 const voices = window.speechSynthesis.getVoices();
                 if (!voices || !voices.length) return;
-                const priorityKeywords = ["Natural", "Female", "Google US English", "Samantha", "Zira", "Victoria", "Karen", "Siri"];
+                const priorityKeywords = ["Online (Natural)", "Neural", "Natural", "Google US English", "Microsoft Online", "Samantha", "Zira", "Victoria", "Karen", "Siri"];
                 for (const kw of priorityKeywords) {
-                    const match = voices.find(v => v.name.includes(kw));
+                    const match = voices.find(v => v.name && v.name.includes(kw));
                     if (match) {
                         ttsVoice = match;
                         break;
                     }
                 }
                 if (!ttsVoice && voices.length) {
-                    ttsVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                    ttsVoice = voices.find(v => v.lang && v.lang.startsWith('en')) || voices[0];
                 }
             };
             selectVoice();
@@ -1752,6 +1772,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 currentPageIndex = activePage;
             }
             ttsSentences = [];
+            ttsSentenceElements = [];
 
             const targetContainer = isReaderMode
                 ? document.getElementById('kindle-section-' + currentPageIndex)
@@ -1761,19 +1782,26 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 const sentenceSpans = targetContainer.querySelectorAll('.reader-tts-sentence');
                 if (sentenceSpans && sentenceSpans.length) {
                     sentenceSpans.forEach(span => {
-                        const txt = stripHtmlTags(span.textContent);
-                        if (txt) ttsSentences.push(txt);
+                        const txt = cleanTextForTTS(span.textContent);
+                        if (txt) {
+                            ttsSentences.push(txt);
+                            ttsSentenceElements.push(span);
+                        }
                     });
                 } else {
-                    const txt = stripHtmlTags(targetContainer.textContent);
+                    const txt = cleanTextForTTS(targetContainer.textContent);
                     if (txt) {
-                        const rawMatches = txt.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [txt];
-                        ttsSentences = rawMatches.map(s => stripHtmlTags(s)).filter(Boolean);
+                        const rawMatches = txt.match(/[^.!?:]+[.!?:]+(?:\s+|$)|[^.!?:]+$/g) || [txt];
+                        rawMatches.forEach(s => {
+                            const cleaned = cleanTextForTTS(s);
+                            if (cleaned) ttsSentences.push(cleaned);
+                        });
                     }
                 }
             }
             if (!ttsSentences.length) {
                 ttsSentences = ["Page " + (currentPageIndex + 1)];
+                ttsSentenceElements = [];
             }
             ttsCurrentSentenceIdx = 0;
             updateAudioInfoDisplay();
@@ -1791,6 +1819,13 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             document.querySelectorAll('.tts-highlight').forEach(el => {
                 el.classList.remove('tts-highlight');
             });
+
+            if (ttsSentenceElements && ttsSentenceElements[sentenceIdx]) {
+                const targetSpan = ttsSentenceElements[sentenceIdx];
+                targetSpan.classList.add('tts-highlight');
+                targetSpan.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                return;
+            }
 
             if (isReaderMode) {
                 const sec = document.getElementById('kindle-section-' + currentPageIndex);
@@ -1828,13 +1863,14 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             }
 
             const sessionId = ++currentSpeechSessionId;
-            const sentence = ttsSentences[ttsCurrentSentenceIdx];
+            const sentence = cleanTextForTTS(ttsSentences[ttsCurrentSentenceIdx]);
             updateAudioInfoDisplay();
             highlightTtsSentence(ttsCurrentSentenceIdx);
 
             ttsUtterance = new SpeechSynthesisUtterance(sentence);
             if (ttsVoice) ttsUtterance.voice = ttsVoice;
             ttsUtterance.rate = ttsSpeed;
+            ttsUtterance.pitch = 1.0;
 
             ttsUtterance.onend = () => {
                 if (sessionId === currentSpeechSessionId && ttsPlaying) {
@@ -2201,7 +2237,10 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
 
             const pageInputEl = document.getElementById('page-input');
             if (pageInputEl) pageInputEl.value = p + 1;
-            localStorage.setItem(STORAGE_KEY, p);
+            try {
+                localStorage.setItem(READ_POS_KEY, p);
+                localStorage.setItem(STORAGE_KEY, p);
+            } catch(e) {}
             updateDrawerActive(p);
 
             prepareTtsForCurrentPage();
@@ -2539,6 +2578,17 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 rvContainer.addEventListener('scroll', () => {
                     if (isReaderMode) {
                         updateKindleProgress();
+                        const activePage = findActivePageOnScreen();
+                        if (activePage !== currentPageIndex) {
+                            currentPageIndex = activePage;
+                            const pageInputEl = document.getElementById('page-input');
+                            if (pageInputEl) pageInputEl.value = activePage + 1;
+                            try {
+                                localStorage.setItem(READ_POS_KEY, activePage);
+                                localStorage.setItem(STORAGE_KEY, activePage);
+                            } catch(e) {}
+                            updateDrawerActive(activePage);
+                        }
                     }
                 });
             }
@@ -2578,10 +2628,18 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             const pageInputEl = document.getElementById('page-input');
             if (pageInputEl) pageInputEl.max = totalPages;
 
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
+            let saved = null;
+            try {
+                saved = localStorage.getItem(READ_POS_KEY);
+                if (saved === null || saved === undefined) {
+                    saved = localStorage.getItem(STORAGE_KEY);
+                }
+            } catch(e) {}
+
+            currentPageIndex = 0;
+            if (saved !== null && saved !== undefined && saved !== '') {
                 const savedIdx = parseInt(saved, 10);
-                if (savedIdx >= 0 && savedIdx < totalPages) {
+                if (!isNaN(savedIdx) && savedIdx >= 0 && savedIdx < totalPages) {
                     currentPageIndex = savedIdx;
                 }
             }
