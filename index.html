@@ -2,7 +2,7 @@
 <html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
     <title>PDF to Offline HTML Flipbook Exporter Pro</title>
     <script>
         function hideLoadingSpinner() {
@@ -743,7 +743,7 @@ if (btnExport) {
                 }
 
                 // Construct clean HTML string for page i
-                let pageHtml = `<div class="page-content" id="page-content-${i}">`;
+                let pageHtml = `<div class="page-content page-container" id="page-content-${i}">`;
                 if (imgDataUrl) {
                     pageHtml += `<div class="page-img-wrapper"><img src="${imgDataUrl}" class="page-img" alt="Page ${i + 1}" /></div>`;
                 }
@@ -908,7 +908,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
     <title>${safeTitle} - Offline Flipbook</title>
     ${scriptOpen}
         function hideLoadingSpinner() {
@@ -1215,6 +1215,17 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         .chapter-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
         .chapter-item-page { font-size: 10px; font-weight: 700; color: #64748B; }
 
+        #reader-content, .page-container {
+            width: 100% !important;
+            max-width: min(100%, 850px) !important;
+            margin: 0 auto !important;
+            box-sizing: border-box !important;
+            padding: 16px 20px !important;
+            overflow-x: hidden !important;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
         /* Amazon Kindle-Style Continuous Reader View */
         #reader-view-container {
             position: fixed;
@@ -1239,14 +1250,14 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         }
         .reader-content-card {
             width: 100%;
-            max-width: 720px;
+            max-width: min(100%, 850px) !important;
             background: #FFFFFF;
             border: 1px solid #EAE3D9;
             border-radius: 16px;
             padding: 36px 32px;
             box-shadow: 0 6px 28px rgba(0,0,0,0.03);
             margin-bottom: 28px;
-            box-sizing: border-box;
+            box-sizing: border-box !important;
         }
         @media (max-width: 640px) {
             .reader-content-card {
@@ -1270,8 +1281,8 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         }
         .reader-text-paragraph {
             font-family: "Bookerly", "Georgia", "Palatino", serif;
-            font-size: var(--reader-font-size, 17px);
-            line-height: 1.8;
+            font-size: clamp(0.95rem, 1rem + 0.5vw, 1.2rem) !important;
+            line-height: 1.65 !important;
             color: #1E293B;
             margin-bottom: 18px;
             word-wrap: break-word;
@@ -1279,6 +1290,11 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             text-align: justify;
             hyphens: auto;
             -webkit-hyphens: auto;
+        }
+        img, figure, table, .page-img {
+            max-width: 100% !important;
+            height: auto !important;
+            object-fit: contain !important;
         }
         .reader-tts-sentence {
             display: inline;
@@ -1543,7 +1559,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
 
         <!-- CLEAN CONTINUOUS READER MODE CONTAINER -->
         <div id="reader-view-container">
-            <div id="reader-cards-wrapper" style="width: 100%; max-width: 720px; display: flex; flex-direction: column; align-items: center;"></div>
+            <div id="reader-content" class="page-container" style="width: 100%; max-width: min(100%, 850px); display: flex; flex-direction: column; align-items: center; margin: 0 auto;"></div>
         </div>
 
         <!-- FLOATING BOTTOM AUDIO TOOLBAR -->
@@ -1925,14 +1941,14 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         }
 
         function buildReaderDom() {
-            const wrapper = document.getElementById('reader-cards-wrapper');
+            const wrapper = document.getElementById('reader-content') || document.getElementById('reader-cards-wrapper');
             if (!wrapper) return;
             wrapper.innerHTML = '';
 
             const pages = window.EMBEDDED_PAGES || [];
             for (let i = 0; i < pages.length; i++) {
                 const card = document.createElement('div');
-                card.className = 'reader-content-card';
+                card.className = 'reader-content-card page-container';
                 card.id = 'reader-card-' + i;
                 card.dataset.page = i;
 
