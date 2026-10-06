@@ -107,6 +107,150 @@
             animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Structural Semantic Document Parser Typography & Hierarchical Spacing */
+        .doc-main-title {
+            font-size: 1.35rem !important; /* 22px */
+            font-weight: 800 !important;
+            text-align: center;
+            line-height: 1.3 !important;
+            margin-top: 0 !important;
+            margin-bottom: 20px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-item-header {
+            font-size: 1.18rem !important;
+            font-weight: 700 !important;
+            line-height: 1.35 !important;
+            margin-top: 12px !important;
+            margin-bottom: 10px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-question-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 10px !important;
+            margin-bottom: 6px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-question-block, .doc-question-text {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.6 !important;
+            margin-bottom: 16px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-options-block {
+            margin-top: 14px !important;
+            margin-bottom: 16px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-options-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 14px !important;
+            margin-bottom: 8px !important;
+            color: #1E293B !important;
+        }
+
+        .doc-options-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .doc-option-item {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.5 !important;
+            margin-bottom: 6px !important;
+            padding-left: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-option-label {
+            font-weight: 700 !important;
+            flex-shrink: 0;
+        }
+
+        .doc-rationale-header {
+            font-size: 1.1rem !important;
+            font-weight: 700 !important;
+            margin-top: 20px !important;
+            margin-bottom: 8px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-rationale-body {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.6 !important;
+            margin-bottom: 18px !important;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-block {
+            margin-top: 18px !important;
+            margin-bottom: 18px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 18px !important;
+            margin-bottom: 8px !important;
+            color: #1E293B !important;
+        }
+
+        .doc-breakdown-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .doc-breakdown-item {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.5 !important;
+            margin-bottom: 6px !important;
+            padding-left: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: #1E293B !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-label {
+            font-weight: 700 !important;
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body class="min-h-full flex flex-col items-center justify-center p-4 sm:p-6 md:p-10">
@@ -505,23 +649,210 @@ function setProgress(pct, text) {
     if (txtEl) txtEl.textContent = text;
 }
 
-function formatQuestionnaireText(text) {
-    if (!text || typeof text !== "string") return text || "";
+function parseReviewerDocument(rawText) {
+    if (!rawText || typeof rawText !== "string") return "";
     try {
-        let result = text;
-        result = result.replace(new RegExp("\\b(Options|Choices|Select|Answers?)\\s*:\\s*", "gi"), "\nOptions:\n");
-        const nonChoicePrefixes = new RegExp("\\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\\s+$", "i");
-        result = result.replace(new RegExp("(\\S)\\s+([A-F0-9][\\.\\)]|\\([A-F0-9]\\))\\s+", "g"), (match, prev, marker, offset, fullStr) => {
+        let globalSentenceIdx = 0;
+
+        function helperWrapSentences(textStr) {
+            if (!textStr) return "";
+            const cleanT = sanitizeText(textStr);
+            if (!cleanT) return "";
+            let sentences = [cleanT];
+            try {
+                sentences = cleanT.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanT];
+            } catch (e) {
+                sentences = [cleanT];
+            }
+            let html = "";
+            sentences.forEach(s => {
+                const cleanS = renderMathAndUnits(sanitizeText(s));
+                if (cleanS) {
+                    html += `<span class="reader-tts-sentence" data-sentence-idx="${globalSentenceIdx++}">${cleanS} </span>`;
+                }
+            });
+            return html;
+        }
+
+        let text = rawText;
+        try {
+            try { text = text.normalize("NFKC"); } catch (e) {}
+            text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
+            text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
+            text = text.replace(/[ \t\f\v]+/g, " ");
+            text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
+        } catch(e) {}
+
+        // Pre-processing step: insert distinct line breaks before known reviewer section headers
+        text = text.replace(/(PHILIPPINE\s+NURSING\s+LICENSURE\s+EXAMINATION[^\n]*)/gi, "\n\n$1\n\n");
+        text = text.replace(/(\[Item\s*[^\]]+\]|Items?\s+\d+\s*(?:to|-)\s*\d+)/gi, "\n\n$1\n");
+        text = text.replace(/\b(Question\s*:?)/gi, "\n$1\n");
+        text = text.replace(/\b(Options|Choices|Select|Answers?)\s*:?/gi, "\n\nOptions:\n");
+        text = text.replace(/\b(Rationale(?:\s*:\s*Core\s+Concept\s*\/\s*Priority\s+Logic)?:?|Explanation\s*:?|Core\s+Concept\s*:?|Priority\s+Logic\s*:?)/gi, "\n\nRationale: Core Concept / Priority Logic:\n");
+        text = text.replace(/\b(Option\s+Breakdown\s*:?|Answer\s+Breakdown\s*:?|Breakdown\s*:?)/gi, "\n\nOption Breakdown:\n");
+
+        // Force line breaks for individual Options (A., B., C., D. or 1., 2., 3., 4.)
+        const nonChoicePrefixes = /\b(vitamin|type|grade|group|class|level|phase|stage|category|hepatitis|paco2|pao2|hco3|ph|table|figure|volume|section|part|series|rule|factor|genotype|sample|patient|case|arm|tier|scale|zone|corridor|room|block|appendix|exhibit|step|item)\s+$/i;
+        text = text.replace(/(\S)\s+([A-D1-4a-d][\.\)]|\([A-D1-4a-d]\))\s+/g, (match, prev, marker, offset, fullStr) => {
             const precedingText = fullStr.substring(Math.max(0, offset - 30), offset + prev.length);
             if (nonChoicePrefixes.test(precedingText)) return match;
             return prev + "\n" + marker + " ";
         });
-        result = result.replace(new RegExp("(Options:)\\s*\\n?\\s*([A-F0-9][\\.\\)]|\\([A-F0-9]\\))\\s+", "gi"), "$1\n$2 ");
-        result = result.replace(new RegExp("(\\S)\\s+(Rationale|Explanation|Note|Discussion|Correct Answer)\\s*:", "gi"), "$1\n\n$2:");
-        return result.replace(new RegExp("\\n{3,}", "g"), "\n\n").trim();
+
+        // Force line breaks for Option Breakdown items (A:, B:, C:, D: or A. Correct...)
+        text = text.replace(/(\S)\s+([A-D1-4a-d]\s*[:\.-]\s*(?:Correct|Incorrect|True|False)?)/gi, "$1\n$2");
+
+        text = text.replace(/\n{3,}/g, "\n\n").trim();
+
+        const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+        let htmlOutput = "";
+        let currentSection = "BODY";
+        let optionsList = [];
+        let breakdownList = [];
+
+        function flushLists() {
+            if (optionsList.length > 0) {
+                htmlOutput += `<div class="doc-options-block"><div class="doc-options-header">Options:</div><div class="doc-options-list">`;
+                optionsList.forEach(opt => {
+                    const labelMatch = opt.match(/^([A-D1-4a-d][\.\)]|\([A-D1-4a-d]\))\s*(.*)/i);
+                    if (labelMatch) {
+                        const label = labelMatch[1];
+                        const content = labelMatch[2];
+                        htmlOutput += `<div class="doc-option-item"><span class="doc-option-label">${label}</span><span class="doc-option-text">${helperWrapSentences(content)}</span></div>`;
+                    } else {
+                        htmlOutput += `<div class="doc-option-item"><span class="doc-option-text">${helperWrapSentences(opt)}</span></div>`;
+                    }
+                });
+                htmlOutput += `</div></div>`;
+                optionsList = [];
+            }
+            if (breakdownList.length > 0) {
+                htmlOutput += `<div class="doc-breakdown-block"><div class="doc-breakdown-header">Option Breakdown:</div><div class="doc-breakdown-list">`;
+                breakdownList.forEach(item => {
+                    const labelMatch = item.match(/^([A-D1-4a-d]\s*[:\.-])\s*(.*)/i);
+                    if (labelMatch) {
+                        const label = labelMatch[1];
+                        const content = labelMatch[2];
+                        htmlOutput += `<div class="doc-breakdown-item"><span class="doc-breakdown-label">${label}</span><span class="doc-breakdown-text">${helperWrapSentences(content)}</span></div>`;
+                    } else {
+                        htmlOutput += `<div class="doc-breakdown-item"><span class="doc-breakdown-text">${helperWrapSentences(item)}</span></div>`;
+                    }
+                });
+                htmlOutput += `</div></div>`;
+                breakdownList = [];
+            }
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // 1. MAIN TITLE / HEADER
+            if (/^PHILIPPINE\s+NURSING\s+LICENSURE\s+EXAMINATION/i.test(line) || (/^[A-Z0-9\s\-,:]{15,}$/.test(line) && i === 0)) {
+                flushLists();
+                htmlOutput += `<h1 class="doc-main-title">${helperWrapSentences(line)}</h1>`;
+                currentSection = "MAIN_TITLE";
+                continue;
+            }
+
+            // 2. ITEM HEADER
+            if (/^(\[Item\s*[^\]]+\]|Items?\s+\d+\s*(?:to|-)\s*\d+)/i.test(line)) {
+                flushLists();
+                htmlOutput += `<div class="doc-item-header">${helperWrapSentences(line)}</div>`;
+                currentSection = "ITEM_HEADER";
+                continue;
+            }
+
+            // 3. QUESTION BLOCK
+            if (/^Question\s*:?/i.test(line)) {
+                flushLists();
+                const qContent = line.replace(/^Question\s*:?/i, "").trim();
+                htmlOutput += `<div class="doc-question-header">Question:</div>`;
+                if (qContent) {
+                    htmlOutput += `<div class="doc-question-block">${helperWrapSentences(qContent)}</div>`;
+                }
+                currentSection = "QUESTION";
+                continue;
+            }
+
+            // 4. OPTIONS SECTION
+            if (/^Options\s*:?/i.test(line)) {
+                flushLists();
+                currentSection = "OPTIONS";
+                const remaining = line.replace(/^Options\s*:?/i, "").trim();
+                if (remaining) {
+                    optionsList.push(remaining);
+                }
+                continue;
+            }
+
+            // 5. RATIONALE / CORE CONCEPT SECTION
+            if (/^(Rationale(?:\s*:\s*Core\s+Concept\s*\/\s*Priority\s+Logic)?:?|Explanation\s*:?|Core\s+Concept\s*:?|Priority\s+Logic\s*:?)/i.test(line)) {
+                flushLists();
+                currentSection = "RATIONALE";
+                const rContent = line.replace(/^(Rationale(?:\s*:\s*Core\s+Concept\s*\/\s*Priority\s+Logic)?:?|Explanation\s*:?|Core\s+Concept\s*:?|Priority\s+Logic\s*:?)/i, "").trim();
+                htmlOutput += `<div class="doc-rationale-header">Rationale: Core Concept / Priority Logic:</div>`;
+                if (rContent) {
+                    htmlOutput += `<div class="doc-rationale-body">${helperWrapSentences(rContent)}</div>`;
+                }
+                continue;
+            }
+
+            // 6. OPTION BREAKDOWN SECTION
+            if (/^(Option\s+Breakdown\s*:?|Answer\s+Breakdown\s*:?|Breakdown\s*:?)/i.test(line)) {
+                flushLists();
+                currentSection = "BREAKDOWN";
+                const bContent = line.replace(/^(Option\s+Breakdown\s*:?|Answer\s+Breakdown\s*:?|Breakdown\s*:?)/i, "").trim();
+                if (bContent) {
+                    breakdownList.push(bContent);
+                }
+                continue;
+            }
+
+            // Content categorization
+            if (currentSection === "OPTIONS" || /^([A-D1-4a-d][\.\)]|\([A-D1-4a-d]\))\s+/i.test(line)) {
+                if (currentSection !== "OPTIONS") {
+                    flushLists();
+                    currentSection = "OPTIONS";
+                }
+                optionsList.push(line);
+            } else if (currentSection === "BREAKDOWN" || /^([A-D1-4a-d]\s*[:\.-]\s*(?:Correct|Incorrect)?)/i.test(line)) {
+                if (currentSection !== "BREAKDOWN") {
+                    flushLists();
+                    currentSection = "BREAKDOWN";
+                }
+                breakdownList.push(line);
+            } else if (currentSection === "QUESTION") {
+                htmlOutput += `<div class="doc-question-block">${helperWrapSentences(line)}</div>`;
+            } else if (currentSection === "RATIONALE") {
+                htmlOutput += `<div class="doc-rationale-body">${helperWrapSentences(line)}</div>`;
+            } else {
+                flushLists();
+                htmlOutput += `<p class="reader-text-paragraph">${helperWrapSentences(line)}</p>`;
+            }
+        }
+
+        flushLists();
+        return htmlOutput || `<p class="reader-text-paragraph">${helperWrapSentences(rawText)}</p>`;
     } catch (err) {
-        console.warn("formatQuestionnaireText error:", err);
-        return text;
+        console.warn("parseReviewerDocument error, falling back:", err);
+        let fallbackHtml = "";
+        let fallbackSentenceIdx = 0;
+        const paragraphs = rawText.split(/\n+/);
+        paragraphs.forEach(p => {
+            const cleanP = sanitizeText(p);
+            if (cleanP) {
+                fallbackHtml += `<p class="reader-text-paragraph">`;
+                const sentences = cleanP.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanP];
+                sentences.forEach(s => {
+                    const cleanS = renderMathAndUnits(sanitizeText(s));
+                    if (cleanS) {
+                        fallbackHtml += `<span class="reader-tts-sentence" data-sentence-idx="${fallbackSentenceIdx++}">${cleanS} </span>`;
+                    }
+                });
+                fallbackHtml += `</p>`;
+            }
+        });
+        return fallbackHtml || `<p class="reader-text-paragraph">${rawText}</p>`;
     }
 }
 
@@ -749,7 +1080,7 @@ if (btnExport) {
                                 rawText += item.str;
                                 lastY = item.transform[5];
                             }
-                            cleanedText = formatQuestionnaireText(renderMathAndUnits(sanitizeText(rawText)));
+                            cleanedText = rawText;
                         } catch(textErr) {
                             console.warn(`Text extraction error on page ${i + 1}:`, textErr);
                         }
@@ -758,39 +1089,16 @@ if (btnExport) {
                     }
                 }
 
-                // Construct clean HTML string for page i
+                // Construct clean HTML string for page i using parseReviewerDocument
+                const parsedTextHtml = parseReviewerDocument(cleanedText);
                 const hasCleanedText = Boolean(cleanedText && cleanedText.trim().length > 0);
                 let pageHtml = `<div class="page-content page-container pdf-page flip-page ${hasCleanedText ? 'has-text' : ''}" id="page-content-${i}">`;
                 if (imgDataUrl) {
                     pageHtml += `<div class="page-img-wrapper"><img src="${imgDataUrl}" class="page-img" alt="Page ${i + 1}" /></div>`;
                 }
                 pageHtml += `<div class="page-text-wrapper" id="page-text-${i}">`;
-                if (cleanedText) {
-                    const paragraphs = cleanedText.split(/\n+/);
-                    let globalSentenceIdx = 0;
-                    const headerPattern = /^(\[Item\s*\d+\]|Question\s*:?|Options\s*:?|Choices\s*:?|Rationale\s*:?|Explanation\s*:?|Correct Answer\s*:?|Note\s*:?|Chapter\s+\d+|Section\s+\d+|Topic\s*:?|\d+\.\s+[A-Z])/i;
-                    paragraphs.forEach((pText) => {
-                        const cleanP = sanitizeText(pText);
-                        if (cleanP) {
-                            const isHeader = headerPattern.test(cleanP) || (cleanP.length < 60 && /^[A-Z0-9\s\-_:\.\(\)]+$/.test(cleanP));
-                            const pClass = isHeader ? "reader-text-paragraph reader-header-topic" : "reader-text-paragraph";
-                            pageHtml += `<p class="${pClass}">`;
-                            let sentences = [cleanP];
-                            try {
-                                sentences = cleanP.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [cleanP];
-                            } catch (matchErr) {
-                                console.warn("Sentence split error:", matchErr);
-                                sentences = [cleanP];
-                            }
-                            sentences.forEach(s => {
-                                const cleanS = renderMathAndUnits(sanitizeText(s));
-                                if (cleanS) {
-                                    pageHtml += `<span class="reader-tts-sentence" data-sentence-idx="${globalSentenceIdx++}">${cleanS} </span>`;
-                                }
-                            });
-                            pageHtml += `</p>`;
-                        }
-                    });
+                if (hasCleanedText && parsedTextHtml) {
+                    pageHtml += parsedTextHtml;
                 } else {
                     pageHtml += `<p class="reader-text-paragraph" style="color: #94A3B8; font-style: italic;">(Page ${i + 1})</p>`;
                 }
@@ -1398,6 +1706,150 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             -webkit-hyphens: auto;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
+        }
+
+        /* Structural Semantic Document Parser Typography & Hierarchical Spacing */
+        .doc-main-title {
+            font-size: 1.35rem !important; /* 22px */
+            font-weight: 800 !important;
+            text-align: center;
+            line-height: 1.3 !important;
+            margin-top: 0 !important;
+            margin-bottom: 20px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-item-header {
+            font-size: 1.18rem !important;
+            font-weight: 700 !important;
+            line-height: 1.35 !important;
+            margin-top: 12px !important;
+            margin-bottom: 10px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-question-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 10px !important;
+            margin-bottom: 6px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-question-block, .doc-question-text {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.6 !important;
+            margin-bottom: 16px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-options-block {
+            margin-top: 14px !important;
+            margin-bottom: 16px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-options-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 14px !important;
+            margin-bottom: 8px !important;
+            color: var(--text-color) !important;
+        }
+
+        .doc-options-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .doc-option-item {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.5 !important;
+            margin-bottom: 6px !important;
+            padding-left: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-option-label {
+            font-weight: 700 !important;
+            flex-shrink: 0;
+        }
+
+        .doc-rationale-header {
+            font-size: 1.1rem !important;
+            font-weight: 700 !important;
+            margin-top: 20px !important;
+            margin-bottom: 8px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-rationale-body {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.6 !important;
+            margin-bottom: 18px !important;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-block {
+            margin-top: 18px !important;
+            margin-bottom: 18px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-header {
+            font-size: 1.08rem !important;
+            font-weight: 700 !important;
+            margin-top: 18px !important;
+            margin-bottom: 8px !important;
+            color: var(--text-color) !important;
+        }
+
+        .doc-breakdown-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .doc-breakdown-item {
+            font-size: 1rem !important;
+            font-weight: 400 !important;
+            line-height: 1.5 !important;
+            margin-bottom: 6px !important;
+            padding-left: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: var(--text-color) !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        .doc-breakdown-label {
+            font-weight: 700 !important;
+            flex-shrink: 0;
         }
 
         /* Professional Header & Section Typography */
