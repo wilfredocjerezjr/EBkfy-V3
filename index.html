@@ -1164,6 +1164,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             position: fixed;
             top: calc(var(--top-header-height) + var(--sat) + 8px) !important;
             bottom: calc(var(--bottom-player-height) + var(--sab) + 8px) !important;
+            max-height: calc(100dvh - var(--top-header-height) - var(--bottom-player-height) - 16px) !important;
             left: 0;
             right: 0;
             width: 100%;
@@ -1778,7 +1779,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         function stripHtmlTags(str) {
             if (!str) return "";
             try {
-                return str.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+                return str.replace(/<[^>]*>/g, "").replace(/\\s+/g, " ").trim();
             } catch (err) {
                 console.warn("stripHtmlTags error:", err);
                 return str;
@@ -1789,13 +1790,13 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
             if (!raw) return "";
             try {
                 let str = raw.replace(/<[^>]*>/g, " ");
-                str = str.replace(/\[Item\s*(\d+)\]/gi, "Item $1");
+                str = str.replace(/\\\[Item\\s*(\\d+)\\\]/gi, "Item $1");
                 str = str.replace(/%/g, " percent ");
                 str = str.replace(/&/g, " and ");
                 str = str.replace(/@/g, " at ");
-                str = str.replace(/\//g, " or ");
+                str = str.replace(/\\\//g, " or ");
                 str = str.replace(/=/g, " equals ");
-                str = str.replace(/\+/g, " plus ");
+                str = str.replace(/\\\+/g, " plus ");
                 str = str.replace(/±/g, " plus or minus ");
                 str = str.replace(/≤/g, " less than or equal to ");
                 str = str.replace(/≥/g, " greater than or equal to ");
@@ -1805,9 +1806,9 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
                 str = str.replace(/÷/g, " divided by ");
                 str = str.replace(/°C/gi, " degrees Celsius ");
                 str = str.replace(/°F/gi, " degrees Fahrenheit ");
-                str = str.replace(/[\{\}\[\]\<\>\(\)]/g, " ");
-                str = str.replace(/\\\\(?:[a-zA-Z]+|.)/g, " ");
-                str = str.replace(/\s+/g, " ").trim();
+                str = str.replace(/[\\{\\}\\\[\\\]\\<\\>\\(\\)]/g, " ");
+                str = str.replace(/\\\\\\\\(?:[a-zA-Z]+|.)/g, " ");
+                str = str.replace(/\\s+/g, " ").trim();
                 return str;
             } catch (err) {
                 console.warn("cleanTextForTTS error:", err);
@@ -1818,7 +1819,7 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         function splitIntoNaturalClauses(sentence) {
             if (!sentence || typeof sentence !== "string") return [];
             try {
-                let clauses = sentence.match(/[^.,;:!?]+[.,;:!?]+(?:\s+|$)|[^.,;:!?]+$/g) || [sentence];
+                let clauses = sentence.match(/[^.,;:!?]+[.,;:!?]+(?:\\s+|$)|[^.,;:!?]+$/g) || [sentence];
                 return clauses.map(c => c.trim()).filter(Boolean);
             } catch (e) {
                 console.warn("splitIntoNaturalClauses error:", e);
