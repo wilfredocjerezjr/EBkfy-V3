@@ -108,9 +108,58 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* Container Page Ratio matching standard PDF portrait proportions */
+        .reviewer-page-container {
+            width: 100%;
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 40px 48px;
+            background-color: #ffffff;
+            box-sizing: border-box;
+        }
+
+        /* Base Typography: Scaled up by 15-20% for readability */
+        .reviewer-text {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 15px; /* Scaled up from original 12px */
+            line-height: 1.6;
+            color: #1a1a1a;
+            white-space: normal; /* Prevents column squeezing & forces continuous line flow */
+            word-break: keep-all;
+            overflow-wrap: break-word;
+        }
+
+        /* Item Structure Spacing */
+        .item-header {
+            font-weight: 700;
+            font-size: 16px;
+            margin-top: 28px;
+            margin-bottom: 12px;
+        }
+
+        .options-group {
+            margin-top: 12px;
+            margin-bottom: 16px;
+        }
+
+        .option-line {
+            display: block;
+            margin-bottom: 8px; /* Dedicated line spacing for options A-D */
+            padding-left: 4px;
+        }
+
+        .rationale-block {
+            margin-top: 16px;
+            margin-bottom: 16px;
+        }
+
+        .breakdown-line {
+            margin-bottom: 8px;
+        }
+
         /* Structural Semantic Document Parser Typography & Hierarchical Spacing */
         .doc-item-container {
-            margin-bottom: 2.5rem !important;
+            margin-bottom: 28px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
@@ -128,12 +177,12 @@
         }
 
         .doc-item-header {
-            font-size: 1.05rem !important;
-            font-weight: 400 !important;
+            font-size: 16px !important;
+            font-weight: 700 !important;
             line-height: 1.6 !important;
-            margin-top: 0 !important;
-            margin-bottom: 1.25rem !important;
-            color: #1E293B !important;
+            margin-top: 28px !important;
+            margin-bottom: 12px !important;
+            color: #1a1a1a !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
@@ -143,55 +192,62 @@
         }
 
         .doc-question-header {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
-            margin-top: 0 !important;
-            margin-bottom: 1.25rem !important;
-            color: #1E293B !important;
+            margin-top: 12px !important;
+            margin-bottom: 12px !important;
+            color: #1a1a1a !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-question-block, .doc-question-text {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 400 !important;
             line-height: 1.6 !important;
-            margin-bottom: 1.25rem !important;
-            color: #1E293B !important;
+            margin-bottom: 12px !important;
+            color: #1a1a1a !important;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            overflow-wrap: break-word !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-options-block {
-            margin-top: 1.25rem !important;
-            margin-bottom: 1.25rem !important;
+            margin-top: 12px !important;
+            margin-bottom: 16px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-options-header {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
             margin-top: 0 !important;
-            margin-bottom: 0.5rem !important;
-            color: #1E293B !important;
+            margin-bottom: 8px !important;
+            color: #1a1a1a !important;
         }
 
         .doc-options-list {
             display: flex;
             flex-direction: column;
-            gap: 0.35rem;
+            gap: 0;
         }
 
         .doc-option-item {
-            font-size: 1rem !important;
+            font-size: 15px !important;
             font-weight: 400 !important;
-            line-height: 1.5 !important;
-            margin-bottom: 0.25rem !important;
+            line-height: 1.6 !important;
+            margin-bottom: 8px !important;
+            padding-left: 4px;
             display: flex;
             align-items: flex-start;
             gap: 8px;
-            color: #1E293B !important;
+            color: #1a1a1a !important;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            overflow-wrap: break-word !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
@@ -202,78 +258,84 @@
         }
 
         .doc-answer-rationale-block {
-            margin-top: 1.25rem !important;
-            margin-bottom: 1.25rem !important;
+            margin-top: 16px !important;
+            margin-bottom: 16px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-correct-answer {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
-            margin-bottom: 0.5rem !important;
-            color: #1E293B !important;
+            margin-bottom: 8px !important;
+            color: #1a1a1a !important;
         }
 
         .doc-rationale-header {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
-            margin-top: 0.5rem !important;
-            margin-bottom: 0.25rem !important;
-            color: #1E293B !important;
+            margin-top: 8px !important;
+            margin-bottom: 4px !important;
+            color: #1a1a1a !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-rationale-subheader {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
-            margin-bottom: 0.25rem !important;
-            color: #1E293B !important;
+            margin-bottom: 4px !important;
+            color: #1a1a1a !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-rationale-body {
-            font-size: 1rem !important;
+            font-size: 15px !important;
             font-weight: 400 !important;
             line-height: 1.6 !important;
-            margin-bottom: 1.25rem !important;
-            color: #1E293B !important;
+            margin-bottom: 16px !important;
+            color: #1a1a1a !important;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            overflow-wrap: break-word !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-breakdown-block {
-            margin-top: 1.25rem !important;
-            margin-bottom: 1.25rem !important;
+            margin-top: 16px !important;
+            margin-bottom: 16px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
 
         .doc-breakdown-header {
-            font-size: 1.05rem !important;
+            font-size: 15px !important;
             font-weight: 700 !important;
             margin-top: 0 !important;
-            margin-bottom: 0.5rem !important;
-            color: #1E293B !important;
+            margin-bottom: 8px !important;
+            color: #1a1a1a !important;
         }
 
         .doc-breakdown-list {
             display: flex;
             flex-direction: column;
-            gap: 0.35rem;
+            gap: 0;
         }
 
         .doc-breakdown-item {
-            font-size: 1rem !important;
+            font-size: 15px !important;
             font-weight: 400 !important;
-            line-height: 1.5 !important;
-            margin-bottom: 0.25rem !important;
+            line-height: 1.6 !important;
+            margin-bottom: 8px !important;
             display: flex;
             align-items: flex-start;
             gap: 8px;
-            color: #1E293B !important;
+            color: #1a1a1a !important;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            overflow-wrap: break-word !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
         }
@@ -709,9 +771,17 @@ function parseReviewerDocument(rawText) {
         try {
             try { text = text.normalize("NFKC"); } catch (e) {}
             text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
-            text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
+            text = text.replace(/(\b\w+)-\s*\r?\n\s*(\w+\b)/g, "$1$2");
+            text = text.replace(/QUESTION\s*:?\s*\r?\n\s*NAIRE/gi, "QUESTIONNAIRE");
+            text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
             text = text.replace(/[ \t\f\v]+/g, " ");
             text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
+            let prev, count = 0;
+            do {
+                prev = text;
+                text = text.replace(/([^\n.?!:])\n(?![A-D1-4][\.\):\r\n\-]|Options:|Choices:|Correct Answer:|Step-by-Step Rationale:|Core Concept|Option Breakdown:|Answer Breakdown:|\[Item|Items?\s+\d+)([^\n])/g, "$1 $2");
+                count++;
+            } while (text !== prev && count < 10);
         } catch(e) {}
 
         // Pre-processing step: insert double newlines before PNLE structural markers
@@ -959,17 +1029,21 @@ function sanitizeText(rawText) {
     try {
         try { text = text.normalize("NFKC"); } catch (e) {}
         text = text.replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, "");
-        text = text.replace(/(\b\w+)-\s*\n\s*(\w+\b)/g, "$1$2");
+        text = text.replace(/(\b\w+)-\s*\r?\n\s*(\w+\b)/g, "$1$2");
+        text = text.replace(/QUESTION\s*:?\s*\r?\n\s*NAIRE/gi, "QUESTIONNAIRE");
         text = text.replace(/(\w)[\uE000-\uF8FF]+(\w)/g, "$1$2");
         text = text.replace(/[\uE000-\uF8FF]/g, "");
+        text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         text = text.replace(/[ \t\f\v]+/g, " ");
         text = text.replace(/ \n/g, "\n").replace(/\n /g, "\n");
+
         let prev, count = 0;
         do {
             prev = text;
-            text = text.replace(/([^\n])\n([^\n])/g, "$1 $2");
+            text = text.replace(/([^\n.?!:])\n(?![A-D1-4][\.\):\r\n\-]|Options:|Choices:|Correct Answer:|Step-by-Step Rationale:|Core Concept|Option Breakdown:|Answer Breakdown:|\[Item|Items?\s+\d+)([^\n])/g, "$1 $2");
             count++;
         } while (text !== prev && count < 10);
+
         text = text.replace(/ \b([.,!?:;])/g, "$1");
         return text.trim();
     } catch (err) {
@@ -1625,13 +1699,13 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         /* Printable Bond Paper Sheet Layout (Unpressed Mode) */
         .pdf-page, .flip-page, .page-container, .page-content {
             width: 100% !important;
-            max-width: 800px !important;
+            max-width: 850px !important;
             height: 100% !important;
             background-color: var(--card-bg, #ffffff) !important;
             background: var(--card-bg, #ffffff) !important;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
             border-radius: 4px;
-            padding: 20px 18px 16px 18px !important;
+            padding: 40px 48px !important;
             box-sizing: border-box !important;
             margin: 0 auto !important;
             overflow-y: auto !important;
@@ -1756,15 +1830,15 @@ function generateOfflineHtml(title, author, embeddedPages, embeddedChapters, fla
         /* UNIFIED CONTINUOUS KINDLE STREAM (No nested cards, no mini-scroll boxes) */
         main.kindle-stream {
             width: 100%;
-            max-width: 800px !important;
+            max-width: 850px !important;
             margin: 0 auto !important;
             height: 100vh;
             overflow-y: auto;
             overflow-x: hidden;
             padding-top: 80px !important;
             padding-bottom: 140px !important;
-            padding-left: 24px !important;
-            padding-right: 24px !important;
+            padding-left: 48px !important;
+            padding-right: 48px !important;
             box-sizing: border-box !important;
             word-break: break-word;
             overflow-wrap: break-word;
